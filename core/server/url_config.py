@@ -10,24 +10,20 @@ MAX_ACTION_SCREENS = 0
 
 logger = logging.getLogger(__name__)
 
-# Internal desktop bridge address. This is only for the private embedded UI/server.
-LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:5555").rstrip("/")
+# Private desktop bridge address. This is only for the embedded app UI/server.
+LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:5555").rstrip("/")
 
-# Official profile/widget URLs must be website URLs, scoped with /u/<public_widget_id>/...
-# Do not default public/widget URLs back to the desktop bridge.
+# Official browser-source URLs must use the widget host, scoped with /u/<public_widget_id>/...
 HOSTED_WIDGETS_BASE_URL = (
     os.getenv("HOSTED_WIDGETS_BASE_URL")
     or os.getenv("WIDGETS_BASE_URL")
-    or os.getenv("PUBLIC_BASE_URL")
-    or "https://liveforge.online"
+    or "https://widgets.quizmaster.online"
 ).rstrip("/")
 WIDGETS_BASE_URL = (os.getenv("WIDGETS_BASE_URL") or HOSTED_WIDGETS_BASE_URL).rstrip("/")
-# Backwards-compatible alias for modules that still consume PUBLIC_BASE_URL.
 PUBLIC_BASE_URL = WIDGETS_BASE_URL
 URL_MODE = os.getenv("URL_MODE", "public").strip().lower() or "public"
 WIDGET_DEBUG = os.getenv("QUIZMASTER_WIDGET_DEBUG", "0") == "1"
 
-# These desktop-only pages do not yet have an account-scoped public backend contract.
 PUBLIC_URL_BLOCKLIST = frozenset({"/obs/control"})
 
 
@@ -37,7 +33,6 @@ def _debug(message: str, *args: object) -> None:
 
 
 def resolved_runtime_identity() -> dict[str, object]:
-    """Return the resolved account/local identity used by URL generation."""
     try:
         from core.services.identity_resolver import resolve_identity
         return resolve_identity().to_dict()
@@ -58,13 +53,6 @@ def resolved_runtime_identity() -> dict[str, object]:
 
 
 def active_profile_id() -> str:
-    """Return the signed-in account public widget id for official URLs.
-
-    User-facing widget/profile URLs must never fall back to the desktop/local
-    profile id. If the website profile has not supplied public_widget_id, fail
-    closed so the UI can show a clear account/profile repair message instead of
-    exposing a reusable local URL.
-    """
     identity = resolved_runtime_identity()
     public_widget_id = str(identity.get("public_widget_id") or "").strip()
     if public_widget_id:
@@ -76,18 +64,15 @@ def active_profile_id() -> str:
 
 
 def active_base_url() -> str:
-    """Return the official website base URL that should be displayed/copied."""
     return WIDGETS_BASE_URL
 
 
 def user_prefix(user_id: str | None = None) -> str:
-    """Return the required user URL prefix for official widgets."""
     runtime_id = user_id or active_profile_id()
     return f"/u/{runtime_id}"
 
 
 def normalize_widget_path(path: str) -> str:
-    """Return the canonical public widget/control path without a local/user prefix."""
     clean_path = path if path.startswith("/") else f"/{path}"
     if clean_path.startswith("/quiz/overlay"):
         clean_path = clean_path.replace("/quiz/overlay", "/actions_events/overlay", 1)
@@ -95,7 +80,6 @@ def normalize_widget_path(path: str) -> str:
 
 
 def public_widget_path(path: str, user_id: str | None = None) -> str:
-    """Return a user-scoped widget/control path for displayed public URLs."""
     clean_path = normalize_widget_path(path)
     if clean_path in PUBLIC_URL_BLOCKLIST:
         raise ValueError(f"Public URL generation is disabled until a scoped route exists: {clean_path}")
@@ -111,7 +95,6 @@ def _append_query(url: str, query: dict[str, object] | None = None) -> str:
 
 
 def get_public_url(path: str, query: dict[str, object] | None = None, user_id: str | None = None) -> str:
-    """Build a displayed official browser-source URL scoped to public_widget_id."""
     try:
         url = _append_query(f"{WIDGETS_BASE_URL}{public_widget_path(path, user_id)}", query)
         _debug(
@@ -128,13 +111,11 @@ def get_public_url(path: str, query: dict[str, object] | None = None, user_id: s
 
 
 def get_internal_url(path: str = "", query: dict[str, object] | None = None) -> str:
-    """Build a private desktop-bridge URL for internal app loading only."""
     clean_path = path if path.startswith("/") else f"/{path}" if path else ""
     return _append_query(f"{LOCAL_BASE_URL}{clean_path}", query)
 
 
 def get_socket_url(path: str = "/socket.io") -> str:
-    """Build the official Socket.IO endpoint URL, using WSS for HTTPS."""
     parsed = urlparse(WIDGETS_BASE_URL)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     clean_path = path if path.startswith("/") else f"/{path}"
@@ -144,12 +125,10 @@ def get_socket_url(path: str = "/socket.io") -> str:
 
 
 def build_public_url(path: str, query: dict[str, object] | None = None, user_id: str | None = None) -> str:
-    """Build a displayed/copyable official URL scoped to public_widget_id."""
     return get_public_url(path, query, user_id=user_id)
 
 
 def _build_session_urls(widget_type: str, session_id: str | None = None) -> dict[str, str]:
-    """Create one owner-scoped session and return all URLs for that instance."""
     identity = resolved_runtime_identity()
     owner_user_id = str(identity.get("auth_user_id") or "").strip()
     public_widget_id = str(identity.get("public_widget_id") or "").strip()
@@ -193,7 +172,6 @@ def build_chess_urls(session_id: str | None = None) -> dict[str, str]:
 
 
 def as_dict() -> dict[str, object]:
-    """Serialize URL config for browser clients."""
     identity = resolved_runtime_identity()
     public_widget_id = str(identity.get("public_widget_id") or "").strip() or None
     active_id = public_widget_id
@@ -229,8 +207,8 @@ def as_dict() -> dict[str, object]:
             "chess_leaderboard": get_public_url("/chess/leaderboard"),
             "genre_wheel_widget": get_public_url("/genre_wheel/widget"),
             "genre_wheel_control": get_public_url("/genre_wheel/control"),
-            "timer_widget": get_public_url("/timer/widget"),
-            "timer_control": get_public_url("/timer/control"),
+            "timer_widget": get_public_url("/timer_display"),
+            "timer_control": get_public_url("/timer_control"),
             "chat_overlay_widget": get_public_url("/chat-overlay/widget"),
             "forge_widget": get_public_url("/forge/widget"),
             "throne_widget": get_public_url("/throne/widget"),
