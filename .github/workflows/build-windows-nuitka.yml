@@ -11,10 +11,10 @@ on:
       pack_mode:
         description: "Packaging mode"
         type: choice
-        default: onefile
+        default: standalone
         options:
-          - onefile      # single QuizMaster.exe
-          - standalone   # one-folder app (fallback if one-file WebEngine fails)
+          - standalone   # one-folder app (the safe, installable default for WebEngine)
+          - onefile      # single QuizMaster.exe (not recommended for WebEngine)
   push:
     branches:
       - "claude/**"
@@ -40,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $mode = "${{ github.event.inputs.pack_mode }}"
-          if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "onefile" }
+          if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "standalone" }
           "PACK_MODE=$mode" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Packaging mode: $mode"
 
@@ -48,16 +48,15 @@ jobs:
         shell: pwsh
         run: |
           $buildArgs = @()
-          if ($env:PACK_MODE -eq "standalone") { $buildArgs += "-Standalone" }
+          if ($env:PACK_MODE -eq "onefile") { $buildArgs += "-Onefile" }
           ./scripts/build_quizmaster_nuitka.ps1 @buildArgs
 
-      - name: Upload compiled exe
+      - name: Upload compiled app
         uses: actions/upload-artifact@v4
         with:
           name: QuizMaster-nuitka-${{ env.PACK_MODE }}
           path: |
             dist/QuizMaster.exe
-            dist/QuizMaster.dist
-            dist/main.dist
+            dist/QuizMaster
           if-no-files-found: error
           retention-days: 14

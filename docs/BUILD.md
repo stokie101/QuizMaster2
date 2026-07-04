@@ -241,16 +241,27 @@ install directory exposes no readable app source at all. It's a **parallel**
 pipeline: the PyInstaller path is untouched and stays the default.
 
 - **Local:** `scripts\build_quizmaster_nuitka.ps1`
-  - default: a single `dist\QuizMaster.exe` (`--onefile`), windowed release.
-  - `-Standalone`: a one-folder app under `dist\QuizMaster.dist\` instead. Use
-    this if the one-file build ever fails to launch — QtWebEngine one-file
-    extracts to a temp dir on every start, which is the one fragile part of the
-    Nuitka path. The folder build is still fully compiled/hardened.
+  - **default:** a one-folder app in `dist\QuizMaster\` (`--standalone`),
+    windowed release. This is the **safe, installable** mode — the folder is
+    laid out exactly like the PyInstaller output so the same Inno installer
+    packages it.
+  - `-Installer`: after the one-folder build, compile the Inno installer into
+    `installer\output\QuizMasterSetup-<ver>.exe` — the single file you actually
+    ship. Needs Inno Setup 6. This is the normal release command:
+    `scripts\build_quizmaster_nuitka.ps1 -Installer`.
+  - `-Onefile`: build a single `dist\QuizMaster.exe` instead. **Not recommended
+    for this app.** A one-file build must self-extract the entire ~500 MB
+    Qt/Chromium payload to a temp dir on every launch, which (a) makes the final
+    build step sit at "99%" for many minutes while it compresses + Defender scans
+    that payload, and (b) is unreliable for QtWebEngine at runtime. That fragility
+    is the same reason the PyInstaller build is one-folder. `-Installer` is
+    rejected with `-Onefile` (the installer packages a folder).
   - `-Console`: keep a console window with live tracebacks for debugging.
 - **CI:** `.github/workflows/build-windows-nuitka.yml` runs on `windows-latest`,
-  compiles the exe, and uploads it as an artifact you can download and launch on
-  a real Windows machine. Trigger it manually from the Actions tab (choose
-  `onefile` or `standalone`). Nuitka builds are slow — 20-40 min is normal.
+  compiles the app, and uploads it as an artifact you can download and launch on
+  a real Windows machine. Trigger it manually from the Actions tab (defaults to
+  `standalone`; `onefile` is available but not recommended). Nuitka builds are
+  slow — 20-40 min is normal.
 
 Notes specific to the Nuitka build:
 
