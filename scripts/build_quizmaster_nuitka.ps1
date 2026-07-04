@@ -132,6 +132,12 @@ $nuitkaArgs = @(
     "-m", "nuitka",
     $packMode,
     "--assume-yes-for-downloads",
+    # Compile with clang-cl instead of MSVC. TikTokLive.proto.tiktok_proto is a
+    # single ~79k-line generated protobuf module that makes MSVC 'cl' die with
+    # "C1002: out of heap space in pass 2". clang handles the huge translation
+    # unit, and clang-cl keeps the MSVC runtime/headers so Qt + QtWebEngine
+    # linkage is unaffected (unlike swapping to a full MinGW toolchain).
+    "--clang",
     "--enable-plugin=pyside6",
     "--windows-console-mode=$consoleMode",
     "--windows-icon-from-ico=core/assets/images/icon.ico",
