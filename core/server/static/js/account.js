@@ -23,7 +23,7 @@ function updateProfile(profile, syncStatus, identity) {
   const signedIn = !!identity?.authenticated;
   const appSlug = profile?.app_slug || 'quizmaster';
   const appName = profile?.app_name || 'QuizMaster';
-  const name = profile?.display_name || (signedIn ? 'QuizMaster User' : 'Local QuizMaster Profile');
+  const name = profile?.display_name || (signedIn ? 'QuizMaster User' : 'QuizMaster account required');
   const email = signedIn ? (identity?.email || profile?.email || '—') : 'Not signed in';
   const plan = identity?.plan || profile?.subscription_tier || profile?.plan || 'Free';
   const subscriptionStatus = profile?.subscription_status || (signedIn ? 'active' : 'inactive');
@@ -34,10 +34,10 @@ function updateProfile(profile, syncStatus, identity) {
   updateText('appSlug', appSlug);
   updateText('plan', plan);
   updateText('subscriptionStatus', subscriptionStatus);
-  updateText('appStatus', signedIn ? (profile?.app_link_status || 'Linked') : 'Local/offline mode');
+  updateText('appStatus', signedIn ? (profile?.app_link_status || 'Linked') : 'Not signed in');
   updateText('widgetStatus', identity?.public_widget_id
     ? `Ready: ${identity.public_widget_id}`
-    : (signedIn ? 'Blocked — missing QuizMaster public_widget_id' : `Local fallback: ${identity?.local_profile_id || 'unavailable'}`));
+    : (signedIn ? 'Blocked — missing QuizMaster public_widget_id' : 'Blocked — sign in to generate official profile URLs'));
   updateText('syncStatus', syncStatus || 'Not enabled yet');
   updateText('avatarInitial', (name || email || 'QM').trim().slice(0, 2).toUpperCase());
   updateText('connectionPill', signedIn ? 'Connected' : 'Not signed in');
@@ -57,9 +57,9 @@ async function loadProfile() {
     }
     updateProfile(data.profile || {}, data.sync_status, data.identity || {});
     if (!data.identity?.authenticated) {
-      setError('Not signed in. QuizMaster is using your local/offline identity and your local quizzes, overlays, analytics, and app settings remain available.');
+      setError('Not signed in. Official QuizMaster profile URLs are blocked until a paid account session is restored or you sign in again.');
     } else if (!data.identity?.public_widget_id) {
-      setError('Warning: this QuizMaster account entitlement is missing public_widget_id. Run the app-entitlements SQL and sign in again if this does not clear.');
+      setError('Warning: this QuizMaster account is missing public_widget_id, so official profile URLs cannot be generated. Repair the website profile routing and sign in again.');
     } else if ((data.profile?.app_slug || 'quizmaster') !== 'quizmaster') {
       setError('Warning: this desktop app did not receive a QuizMaster-scoped account profile. Check app_slug routing on the website backend.');
     }
@@ -78,7 +78,7 @@ async function logout() {
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || 'Logout failed.');
     updateText('connectionPill', 'Logged out');
-    setError('You are logged out. QuizMaster will continue using the local/offline identity; local data was not deleted.');
+    setError('You are logged out. Official QuizMaster profile URLs are blocked until you sign in again.');
     el('profileState').hidden = true;
   } catch (error) {
     setError(`Logout failed: ${error.message}`);
