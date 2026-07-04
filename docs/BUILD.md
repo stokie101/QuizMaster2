@@ -275,3 +275,11 @@ Notes specific to the Nuitka build:
 - **Nuitka has no `sys._MEIPASS`.** `core/utils/resource_loader.py` detects the
   Nuitka case (`"__compiled__" in globals()`) and resolves resources from the
   app tree instead, so the same code works under both packagers.
+- **TikTokLive's protobuf is kept as bytecode.**
+  `--noinclude-custom-mode=TikTokLive.proto:bytecode` demotes TikTokLive's
+  betterproto schema (`TikTokLive.proto.tiktok_proto`, a single ~79k-line
+  generated module) to bytecode instead of C-compiling it. That one file
+  otherwise crashes MSVC (`C1002: out of heap`) or makes clang grind for an
+  hour — **this is what stops the build stalling at "99%".** It's the same
+  trick Nuitka uses automatically for `google.protobuf` `*_pb2` files; the
+  module is still bundled and imported normally at runtime, just not compiled.
