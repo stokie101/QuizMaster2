@@ -1,4 +1,4 @@
-"""Central URL configuration for QuizMaster public/local links."""
+"""Central URL configuration for QuizMaster public/profile links."""
 
 from __future__ import annotations
 
@@ -10,14 +10,21 @@ MAX_ACTION_SCREENS = 0
 
 logger = logging.getLogger(__name__)
 
+# Internal desktop bridge address. This is only for the private embedded UI/server.
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:5555").rstrip("/")
-# Hosted value preserved for the future website/widget split; set URL_MODE=public
-# and WIDGETS_BASE_URL=https://widgets.quizmaster.online to re-enable it.
-HOSTED_WIDGETS_BASE_URL = "https://widgets.quizmaster.online"
-WIDGETS_BASE_URL = os.getenv("WIDGETS_BASE_URL", LOCAL_BASE_URL).rstrip("/")
+
+# Official profile/widget URLs must be website URLs, scoped with /u/<public_widget_id>/...
+# Do not default public/widget URLs back to the desktop bridge.
+HOSTED_WIDGETS_BASE_URL = (
+    os.getenv("HOSTED_WIDGETS_BASE_URL")
+    or os.getenv("WIDGETS_BASE_URL")
+    or os.getenv("PUBLIC_BASE_URL")
+    or "https://liveforge.online"
+).rstrip("/")
+WIDGETS_BASE_URL = (os.getenv("WIDGETS_BASE_URL") or HOSTED_WIDGETS_BASE_URL).rstrip("/")
 # Backwards-compatible alias for modules that still consume PUBLIC_BASE_URL.
 PUBLIC_BASE_URL = WIDGETS_BASE_URL
-URL_MODE = os.getenv("URL_MODE", "local").strip().lower() or "local"
+URL_MODE = os.getenv("URL_MODE", "public").strip().lower() or "public"
 WIDGET_DEBUG = os.getenv("QUIZMASTER_WIDGET_DEBUG", "0") == "1"
 
 # These desktop-only pages do not yet have an account-scoped public backend contract.
@@ -51,28 +58,30 @@ def resolved_runtime_identity() -> dict[str, object]:
 
 
 def active_profile_id() -> str:
-    """Return the public widget id, permitting local identity only in development mode."""
+    """Return the signed-in account public widget id for official URLs.
+
+    User-facing widget/profile URLs must never fall back to the desktop/local
+    profile id. If the website profile has not supplied public_widget_id, fail
+    closed so the UI can show a clear account/profile repair message instead of
+    exposing a reusable local URL.
+    """
     identity = resolved_runtime_identity()
     public_widget_id = str(identity.get("public_widget_id") or "").strip()
     if public_widget_id:
         return public_widget_id
-    if URL_MODE != "public":
-        local_id = str(identity.get("active_runtime_id") or identity.get("local_profile_id") or "local-dev").strip()
-        if local_id:
-            return local_id
     raise ValueError(
         identity.get("warning")
-        or "Your QuizMaster account is missing a public_widget_id; public widget URLs cannot be generated."
+        or "Your QuizMaster account is missing public_widget_id; official widget URLs cannot be generated."
     )
 
 
 def active_base_url() -> str:
-    """Return the base URL that should be displayed/copied in the UI."""
-    return WIDGETS_BASE_URL if URL_MODE == "public" else LOCAL_BASE_URL
+    """Return the official website base URL that should be displayed/copied."""
+    return WIDGETS_BASE_URL
 
 
 def user_prefix(user_id: str | None = None) -> str:
-    """Return the required user URL prefix for public widgets."""
+    """Return the required user URL prefix for official widgets."""
     runtime_id = user_id or active_profile_id()
     return f"/u/{runtime_id}"
 
@@ -102,10 +111,8 @@ def _append_query(url: str, query: dict[str, object] | None = None) -> str:
 
 
 def get_public_url(path: str, query: dict[str, object] | None = None, user_id: str | None = None) -> str:
-    """Build a displayed browser-source URL from the active base configuration."""
+    """Build a displayed official browser-source URL scoped to public_widget_id."""
     try:
-        if URL_MODE != "public":
-            return get_internal_url(path, query)
         url = _append_query(f"{WIDGETS_BASE_URL}{public_widget_path(path, user_id)}", query)
         _debug(
             "generated_route=%s base_host=%s public_widget_id_present=%s transport=https",
@@ -121,15 +128,14 @@ def get_public_url(path: str, query: dict[str, object] | None = None, user_id: s
 
 
 def get_internal_url(path: str = "", query: dict[str, object] | None = None) -> str:
-    """Build a local-only URL for desktop QWebEngine/internal app loading."""
+    """Build a private desktop-bridge URL for internal app loading only."""
     clean_path = path if path.startswith("/") else f"/{path}" if path else ""
     return _append_query(f"{LOCAL_BASE_URL}{clean_path}", query)
 
 
 def get_socket_url(path: str = "/socket.io") -> str:
-    """Build the Socket.IO endpoint URL, using WSS for the production widget host."""
-    base = WIDGETS_BASE_URL if URL_MODE == "public" else LOCAL_BASE_URL
-    parsed = urlparse(base)
+    """Build the official Socket.IO endpoint URL, using WSS for HTTPS."""
+    parsed = urlparse(WIDGETS_BASE_URL)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     clean_path = path if path.startswith("/") else f"/{path}"
     url = f"{scheme}://{parsed.netloc}{clean_path}"
@@ -138,7 +144,7 @@ def get_socket_url(path: str = "/socket.io") -> str:
 
 
 def build_public_url(path: str, query: dict[str, object] | None = None, user_id: str | None = None) -> str:
-    """Build a displayed/copyable public URL scoped to public_widget_id."""
+    """Build a displayed/copyable official URL scoped to public_widget_id."""
     return get_public_url(path, query, user_id=user_id)
 
 
@@ -189,24 +195,23 @@ def build_chess_urls(session_id: str | None = None) -> dict[str, str]:
 def as_dict() -> dict[str, object]:
     """Serialize URL config for browser clients."""
     identity = resolved_runtime_identity()
-    public_widget_id = identity.get("public_widget_id")
-    active_id = public_widget_id or (identity.get("active_runtime_id") if URL_MODE != "public" else None)
+    public_widget_id = str(identity.get("public_widget_id") or "").strip() or None
+    active_id = public_widget_id
     return {
         "WIDGETS_BASE_URL": WIDGETS_BASE_URL,
         "PUBLIC_BASE_URL": WIDGETS_BASE_URL,
-        "LOCAL_BASE_URL": LOCAL_BASE_URL,
-        "URL_MODE": URL_MODE,
+        "HOSTED_WIDGETS_BASE_URL": HOSTED_WIDGETS_BASE_URL,
+        "URL_MODE": "public",
         "WIDGET_DEBUG": WIDGET_DEBUG,
         "LIVEFORGE_USER_ID": active_id,
         "PROFILE_ID": active_id,
         "PUBLIC_WIDGET_ID": public_widget_id,
-        "ACTIVE_RUNTIME_ID": identity.get("active_runtime_id"),
+        "ACTIVE_RUNTIME_ID": active_id,
         "ACTIVE_BASE_URL": active_base_url(),
         "DISPLAY_BASE_URL": active_base_url(),
-        "HOSTED_WIDGETS_BASE_URL": HOSTED_WIDGETS_BASE_URL,
         "API_BASE_URL": active_base_url(),
         "IDENTITY": identity,
-        "CAN_GENERATE_PUBLIC_URLS": bool(active_id),
+        "CAN_GENERATE_PUBLIC_URLS": bool(public_widget_id),
         "ACTIONS_EVENTS_OVERLAY_URLS": {
             str(screen): get_public_url("/actions_events/overlay", {"screen": screen})
             for screen in range(1, MAX_ACTION_SCREENS + 1)
