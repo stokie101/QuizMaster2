@@ -3,16 +3,14 @@
 
     const PUBLIC_URL_BLOCKLIST = new Set(['/obs/control']);
 
-    const HOSTED_WIDGETS_BASE_URL = 'https://widgets.quizmaster.online';
-    const LOCAL_BASE_URL = 'http://localhost:5555';
-    const WIDGETS_BASE_URL = LOCAL_BASE_URL;
+    const HOSTED_WIDGETS_BASE_URL = 'https://liveforge.online';
+    const WIDGETS_BASE_URL = HOSTED_WIDGETS_BASE_URL;
     const DEFAULTS = {
         WIDGETS_BASE_URL,
         PUBLIC_BASE_URL: WIDGETS_BASE_URL,
-        LOCAL_BASE_URL,
         HOSTED_WIDGETS_BASE_URL,
-        API_BASE_URL: LOCAL_BASE_URL,
-        URL_MODE: 'local',
+        API_BASE_URL: WIDGETS_BASE_URL,
+        URL_MODE: 'public',
         PROFILE_ID: null,
         PUBLIC_WIDGET_ID: null,
         ACTIVE_RUNTIME_ID: null,
@@ -41,16 +39,13 @@
 
     function activeRuntimeId() {
         const current = config();
-        const id = publicWidgetIdFromPath() || current.PUBLIC_WIDGET_ID || current.ACTIVE_RUNTIME_ID;
+        const id = publicWidgetIdFromPath() || current.PUBLIC_WIDGET_ID || current.ACTIVE_RUNTIME_ID || current.PROFILE_ID;
         return id ? String(id) : null;
     }
 
     function publicWidgetId() {
-        const current = config();
-        const id = activeRuntimeId() || current.PROFILE_ID || current.QUIZMASTER_USER_ID;
-        if (id) return String(id);
-        if (current.URL_MODE !== 'public') return 'local-dev';
-        return null;
+        const id = activeRuntimeId();
+        return id ? String(id) : null;
     }
 
     const readyPromise = fetch('/api/quizmaster/url-config', { cache: 'no-store' })
@@ -70,14 +65,13 @@
         });
 
     function activeBaseUrl() {
-        const current = config();
-        return trimTrailingSlash(current.URL_MODE === 'public' ? current.WIDGETS_BASE_URL : current.LOCAL_BASE_URL);
+        return trimTrailingSlash(config().WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL);
     }
 
     function userPrefix() {
         const profileId = publicWidgetId();
         if (!profileId) {
-            throw new Error('Your QuizMaster account is missing a public_widget_id; public widget URLs cannot be generated.');
+            throw new Error('Your QuizMaster account is missing public_widget_id; official widget URLs cannot be generated.');
         }
         return `/u/${encodeURIComponent(profileId)}`;
     }
@@ -107,11 +101,11 @@
 
     function get_public_url(path, query) {
         try {
-            if (config().URL_MODE !== 'public') return get_internal_url(path, query);
-            const url = appendQuery(new URL(`${trimTrailingSlash(config().WIDGETS_BASE_URL)}${publicWidgetPath(path)}`), query);
+            const base = trimTrailingSlash(config().WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL);
+            const url = appendQuery(new URL(`${base}${publicWidgetPath(path)}`), query);
             debug('generated_url', {
                 route: normalizePath(path),
-                baseHost: new URL(config().WIDGETS_BASE_URL).host,
+                baseHost: new URL(base).host,
                 publicWidgetIdPresent: Boolean(publicWidgetId()),
                 transport: 'https'
             });
@@ -124,11 +118,11 @@
 
     function get_internal_url(path, query) {
         const cleanPath = String(path || '').startsWith('/') ? path : `/${path || ''}`;
-        return appendQuery(new URL(`${trimTrailingSlash(config().LOCAL_BASE_URL)}${cleanPath}`), query);
+        return appendQuery(new URL(`${window.location.origin}${cleanPath}`), query);
     }
 
     function get_socket_url(path) {
-        const base = config().URL_MODE === 'public' ? trimTrailingSlash(config().WIDGETS_BASE_URL) : trimTrailingSlash(config().LOCAL_BASE_URL);
+        const base = trimTrailingSlash(config().WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL);
         const parsed = new URL(base);
         parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
         parsed.pathname = String(path || '/socket.io').startsWith('/') ? String(path || '/socket.io') : `/${path}`;
@@ -139,22 +133,18 @@
     }
 
     function socketOrigin() {
-        return window.location.origin || activeBaseUrl();
+        return activeBaseUrl();
     }
 
     function apiPrefix() {
-        if (config().URL_MODE !== 'public') return '';
         const id = activeRuntimeId();
         return id ? `/u/${encodeURIComponent(id)}` : '';
     }
 
     function apiBaseUrl() {
         const current = config();
-        const configuredApiBase = current.API_BASE_URL || current.ACTIVE_BASE_URL;
-        const base = current.URL_MODE === 'public'
-            ? (configuredApiBase || current.WIDGETS_BASE_URL)
-            : current.LOCAL_BASE_URL;
-        return trimTrailingSlash(base || window.location.origin);
+        const configuredApiBase = current.API_BASE_URL || current.ACTIVE_BASE_URL || current.WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL;
+        return trimTrailingSlash(configuredApiBase);
     }
 
     function sessionId() {
