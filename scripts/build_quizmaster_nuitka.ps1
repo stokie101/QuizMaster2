@@ -4,13 +4,24 @@
     so the whole app (not just the Cython gate) ships as compiled binaries that
     are far harder to decompile/clone than PyInstaller bytecode.
 
+    Packaging: this builds a one-FOLDER app (dist\QuizMaster\QuizMaster.exe) by
+    default, which the Inno installer wraps into a single QuizMasterSetup.exe --
+    exactly like the PyInstaller path. This is the SAFE mode for a QtWebEngine
+    app: the WebEngine helper process needs its resources in a stable folder
+    beside the exe. A single-file exe (-Onefile) must self-extract the entire
+    ~500 MB Qt/Chromium payload to a temp dir on every launch, which (a) makes
+    the final build step crawl at "99%" while it compresses+scans that payload,
+    and (b) is unreliable for WebEngine at runtime. Only use -Onefile if you
+    specifically need a loose single exe and have verified it launches.
+
     Flags:
-      -Standalone : build a one-FOLDER app (dist\QuizMaster.dist\QuizMaster.exe)
-                    instead of a single-file exe. QtWebEngine one-file extracts
-                    to a temp dir at every launch; if that ever fails to start,
-                    rebuild with -Standalone (still fully compiled/hardened).
-      -Console    : keep a console window with live tracebacks (debug). Default
-                    is a windowed release build with no console.
+      -Onefile   : build a single-file exe (dist\QuizMaster.exe) instead of the
+                   one-folder app. Not recommended for this app (see above).
+      -Installer : after a one-folder build, compile installer\QuizMaster.iss
+                   into installer\output\QuizMasterSetup-<ver>.exe (needs Inno
+                   Setup 6). Ignored with -Onefile (the installer packs a folder).
+      -Console   : keep a console window with live tracebacks (debug). Default
+                   is a windowed release build with no console.
 
     Notes:
       * The Cython step is intentionally skipped: Nuitka compiles
@@ -24,7 +35,8 @@
         Windows CI workflow and the user's machine are the real verification.
 #>
 param(
-    [switch]$Standalone,
+    [switch]$Onefile,
+    [switch]$Installer,
     [switch]$Console
 )
 
@@ -78,6 +90,25 @@ function Invoke-Python {
     if ($LASTEXITCODE -ne 0) { throw "$Step failed with exit code $LASTEXITCODE." }
 }
 
+function Resolve-InnoSetupCompiler {
+    $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+
+    $programFilesX86 = [Environment]::GetFolderPath("ProgramFilesX86")
+    $programFiles = [Environment]::GetFolderPath("ProgramFiles")
+    $candidates = @(
+        (Join-Path $programFilesX86 "Inno Setup 6\ISCC.exe"),
+        (Join-Path $programFiles "Inno Setup 6\ISCC.exe"),
+        (Join-Path $programFilesX86 "Inno Setup 5\ISCC.exe"),
+        (Join-Path $programFiles "Inno Setup 5\ISCC.exe")
+    ) | Where-Object { $_ -and $_.Trim() }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    throw "Inno Setup compiler ISCC.exe was not found. The app build succeeded; install Inno Setup 6 and rerun with -Installer."
+}
+
 function Stop-OldBuildProcesses {
     foreach ($name in @("QuizMaster", "QtWebEngineProcess")) {
         Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
@@ -102,8 +133,12 @@ function Remove-BuildFolder {
     }
 }
 
+if ($Installer -and $Onefile) {
+    throw "-Installer packages the one-folder app and cannot be combined with -Onefile. Drop -Onefile to build the installable one-folder app."
+}
+
 $modeLabel = if ($Console) { "DEBUG (console window, error tracing)" } else { "RELEASE (windowed, hardened)" }
-$packLabel = if ($Standalone) { "one-folder (--standalone)" } else { "single exe (--onefile)" }
+$packLabel = if ($Onefile) { "single exe (--onefile, not recommended for WebEngine)" } else { "one-folder app (--standalone)" }
 Write-Host "Building QuizMaster with Nuitka -- $modeLabel -- $packLabel" -ForegroundColor Cyan
 Write-Host "Using Python: $($Python.Label) ($($Python.Version))" -ForegroundColor Green
 
@@ -126,7 +161,7 @@ Invoke-Python -Step "Generate web asset bundle" -Arguments @("scripts/generate_w
 Get-ChildItem "core/services" -Filter "subscription_gate*.pyd" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 $consoleMode = if ($Console) { "force" } else { "disable" }
-$packMode = if ($Standalone) { "--standalone" } else { "--onefile" }
+$packMode = if ($Onefile) { "--onefile" } else { "--standalone" }
 
 $nuitkaArgs = @(
     "-m", "nuitka",
@@ -169,21 +204,35 @@ $nuitkaArgs = @(
     "main.py"
 )
 
-Write-Host "Running Nuitka (this is slow -- 20-40 min is normal)..." -ForegroundColor Cyan
+if ($Onefile) {
+    Write-Host "Running Nuitka onefile (slow -- the final single-file compression of the Qt/Chromium payload can sit at ~99% for many minutes)..." -ForegroundColor Cyan
+} else {
+    Write-Host "Running Nuitka standalone (this is slow -- 20-40 min is normal)..." -ForegroundColor Cyan
+}
 Invoke-Python -Step "Nuitka build" -Arguments $nuitkaArgs
 
-if ($Standalone) {
-    $exe = Join-Path $Root "dist\QuizMaster.dist\QuizMaster.exe"
-    if (-not (Test-Path $exe)) {
-        # Nuitka names the standalone folder after the entry module (main.dist).
-        $fallback = Join-Path $Root "dist\main.dist\QuizMaster.exe"
-        if (Test-Path $fallback) { $exe = $fallback }
-    }
-} else {
+if ($Onefile) {
     $exe = Join-Path $Root "dist\QuizMaster.exe"
+    if (-not (Test-Path $exe)) { throw "Build failed: dist\QuizMaster.exe was not produced." }
+    $distRoot = $null
+} else {
+    # Nuitka names the standalone folder after the entry module (main.dist);
+    # older/other setups may produce QuizMaster.dist. Normalize to dist\QuizMaster
+    # so the Inno installer (which packages ..\dist\QuizMaster\*) consumes it
+    # unchanged, matching the PyInstaller output layout.
+    $distRoot = Join-Path $Root "dist\QuizMaster"
+    $produced = @("dist\main.dist", "dist\QuizMaster.dist") |
+        ForEach-Object { Join-Path $Root $_ } |
+        Where-Object { Test-Path $_ } |
+        Select-Object -First 1
+    if (-not $produced) { throw "Build failed: no Nuitka standalone folder (dist\main.dist) was produced." }
+    if ((Resolve-Path $produced).Path -ne $distRoot) {
+        if (Test-Path $distRoot) { Remove-BuildFolder -Path $distRoot }
+        Rename-Item -Path $produced -NewName "QuizMaster"
+    }
+    $exe = Join-Path $distRoot "QuizMaster.exe"
+    if (-not (Test-Path $exe)) { throw "Build failed: $exe was not produced." }
 }
-
-if (-not (Test-Path $exe)) { throw "Build failed: QuizMaster.exe was not produced under dist\." }
 
 Write-Host "Nuitka build complete: $exe" -ForegroundColor Green
 if ($Console) {
@@ -191,3 +240,15 @@ if ($Console) {
     Write-Host "    $exe" -ForegroundColor Yellow
 }
 Write-Host "Everything (including the subscription gate) is compiled to machine code; no readable app .py source ships in this build." -ForegroundColor Yellow
+
+if ($Installer) {
+    $iscc = Resolve-InnoSetupCompiler
+    $innoArgs = @("installer\QuizMaster.iss")
+    if ($Console) { $innoArgs = @("/DConsoleBuild=1") + $innoArgs }
+    Write-Host "Using Inno Setup compiler: $iscc" -ForegroundColor Green
+    if ($Console) { Write-Host "Compiling CONSOLE debug installer..." -ForegroundColor Cyan }
+    else { Write-Host "Compiling installer..." -ForegroundColor Cyan }
+    & $iscc @innoArgs
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
+    Write-Host "Installer written to installer\output\" -ForegroundColor Green
+}

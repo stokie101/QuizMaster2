@@ -1,6 +1,9 @@
 ; QuizMaster Professional Installer
-; Build the EXE first with: scripts\build_quizmaster.ps1
-; Then compile this file with Inno Setup Compiler.
+; Build the one-folder app first (either produces ..\dist\QuizMaster\):
+;   PyInstaller:  scripts\build_quizmaster.ps1
+;   Nuitka:       scripts\build_quizmaster_nuitka.ps1   (fully compiled)
+; Then compile this file with Inno Setup Compiler, or pass -Installer to either
+; build script to compile it automatically.
 
 #define MyAppName "QuizMaster"
 #define MyAppVersion "1.0.0"
