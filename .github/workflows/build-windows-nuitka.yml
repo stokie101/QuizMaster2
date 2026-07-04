@@ -58,5 +58,6 @@ jobs:
           path: |
             dist/QuizMaster.exe
             dist/QuizMaster.dist
+            dist/main.dist
           if-no-files-found: error
           retention-days: 14
