@@ -180,11 +180,18 @@ $nuitkaArgs = @(
     "--product-name=QuizMaster",
     "--product-version=1.0.0",
     "--file-version=1.0.0",
-    # Runtime data. Frontend folders are deliberately NOT included -- they are
-    # embedded via web_assets_bundle + the Qt resource module (anti-copy).
+    # Runtime data. Frontend HTML/CSS/JS/sounds are deliberately NOT included as
+    # loose files -- they are embedded via web_assets_bundle + the Qt resource
+    # module (anti-copy). Do NOT add --include-data-dir for those folders.
     "--include-data-files=config/production.env=config/production.env",
     "--include-data-files=License.txt=License.txt",
     "--include-data-files=THIRD_PARTY_LICENSES.txt=THIRD_PARTY_LICENSES.txt",
+    # Branding images (logo + icon.ico) ARE shipped as loose files on purpose so
+    # they can be swapped in the install folder without recompiling. The bridge
+    # serves /core/assets disk-first, then falls back to the embedded copy, so a
+    # replaced file is picked up and a deleted one still renders. This is the one
+    # asset folder we intentionally keep "on the outside".
+    "--include-data-dir=core/assets/images=core/assets/images",
     # ServiceRegistry imports services by dotted string, so force whole packages.
     "--include-package=core",
     "--include-package=config",

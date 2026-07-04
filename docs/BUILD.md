@@ -275,6 +275,14 @@ Notes specific to the Nuitka build:
 - **Nuitka has no `sys._MEIPASS`.** `core/utils/resource_loader.py` detects the
   Nuitka case (`"__compiled__" in globals()`) and resolves resources from the
   app tree instead, so the same code works under both packagers.
+- **Branding images ship loose and swappable.**
+  `--include-data-dir=core/assets/images=core/assets/images` ships the logo and
+  `icon.ico` as real files under the install folder (everything else stays
+  embedded/compiled). The bridge serves `/core/assets` **disk-first, then
+  embedded**, so you can replace `core\assets\images\quizmaster-logo.png` (or
+  `icon.ico`) in an installed copy to rebrand without recompiling; delete it and
+  the embedded default still renders. (Note: a version upgrade re-copies the
+  defaults over `{app}\core\assets`.)
 - **TikTokLive's protobuf is kept as bytecode.**
   `--noinclude-custom-mode=TikTokLive.proto:bytecode` demotes TikTokLive's
   betterproto schema (`TikTokLive.proto.tiktok_proto`, a single ~79k-line

@@ -7,11 +7,46 @@ routes and serve the same URLs from memory.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.routing import APIRoute
 
 from core.utils.embedded_web_assets import embedded_asset_response
+from core.utils.resource_loader import get_resource_path
+
+
+_core_assets_root: Path | None = None
+
+
+def _core_assets_dir() -> Path:
+    global _core_assets_root
+    if _core_assets_root is None:
+        try:
+            _core_assets_root = get_resource_path("core/assets").resolve()
+        except Exception:
+            _core_assets_root = Path("core/assets").resolve()
+    return _core_assets_root
+
+
+def _loose_asset_file(relative_path: str) -> Path | None:
+    """Resolve a /core/assets/... request to a loose on-disk file, if present.
+
+    Branding images (logo, icon.ico) are shipped as loose, swappable files, so a
+    replaced file in the install folder overrides the embedded copy. Returns None
+    when there is no such file on disk (then the embedded bundle is used). Guards
+    against path traversal outside the assets directory.
+    """
+    if not relative_path.startswith("core/assets/"):
+        return None
+    root = _core_assets_dir()
+    candidate = (root / relative_path[len("core/assets/"):]).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 EXACT_FRONTEND_ROUTES: dict[str, tuple[str, str]] = {
@@ -66,9 +101,14 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
 
     @app.get("/core/assets/{asset_path:path}", include_in_schema=False)
     async def core_assets(asset_path: str):
-        # media_type=None -> use the bundle's stored MIME (e.g. image/png for the
-        # logo) instead of forcing application/octet-stream.
-        return _asset_or_404(f"core/assets/{asset_path}", None)
+        relative = f"core/assets/{asset_path}"
+        # Disk-first: a loose (swappable) branding file overrides the embedded
+        # copy. FileResponse sets the MIME from the filename (image/png, .ico...).
+        loose = _loose_asset_file(relative)
+        if loose is not None:
+            return FileResponse(str(loose))
+        # media_type=None -> use the bundle's stored MIME (e.g. image/png).
+        return _asset_or_404(relative, None)
 
     @app.get("/static/{asset_path:path}", include_in_schema=False)
     async def static_assets(asset_path: str):

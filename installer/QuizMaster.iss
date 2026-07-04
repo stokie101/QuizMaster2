@@ -40,14 +40,25 @@ OutputBaseFilename=QuizMasterSetup-{#MyAppVersion}{#MyOutputSuffix}
 SetupIconFile=..\core\assets\images\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
+; Modern, branded wizard.
 WizardStyle=modern
+WizardResizable=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
 CloseApplications=yes
 RestartApplications=no
+; Windows 10+ (WebEngine target) and a setup log for support.
+MinVersion=10.0
+SetupLogging=yes
+; Branded metadata on the Setup.exe itself.
+VersionInfoVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoProductName={#MyAppName}
+VersionInfoDescription={#MyAppName} Setup
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
