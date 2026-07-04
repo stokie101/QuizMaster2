@@ -8,13 +8,13 @@
 <header class="page-hero"><div><p class="eyebrow">Live quiz control room</p><h1>Dashboard</h1><p class="hero-copy">Run TikTok LIVE quizzes with OBS-ready overlays, chat answers, and a live leaderboard.</p></div><span class="pill success">Ready</span></header>
 <section class="dashboard-grid">
   <article class="card status-card"><div class="card-head"><h2>TikTok LIVE</h2><span id="tiktokStatus" class="pill danger">Disconnected</span></div><p id="tiktokHelp">Use the TikTok connector in the sidebar. It will connect chat automatically when your LIVE is available.</p></article>
-  <article class="card status-card"><div class="card-head"><h2>OBS</h2><span id="obsStatus" class="pill neutral">Manual / not connected</span></div><p>Use the browser-source display URLs or connect OBS WebSocket from Overlay Studio.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
+  <article class="card status-card"><div class="card-head"><h2>OBS</h2><span id="obsStatus" class="pill neutral">Manual / not connected</span></div><p>Use your official profile browser-source URLs or connect OBS WebSocket from Overlay Studio.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
   <article class="card status-card"><div class="card-head"><h2>Current quiz</h2><span id="quizStatus" class="pill warning">No quiz loaded</span></div><p id="quizDetail">Load a CSV quiz to begin.</p><a class="button" href="/quiz_tab.html?mode=builder">Load quiz CSV</a></article>
   <article class="card status-card"><div class="card-head"><h2>Leaderboard</h2><span id="leaderboardCount" class="pill neutral">0 players</span></div><p>Scores update from real chat answers during the quiz.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
 </section>
 <section class="two-column">
-  <article class="card"><h2>Quick start</h2><ol class="checklist"><li>Link TikTok from the sidebar connector.</li><li>Go LIVE on TikTok; QuizMaster will connect chat automatically.</li><li>Load a CSV quiz in Quiz Builder.</li><li>Add the quiz, timer, and leaderboard URLs as OBS browser sources.</li><li>Start the quiz from Quiz Settings.</li></ol></article>
-  <article class="card"><h2>Browser source URLs</h2><div class="url-list"><code>http://localhost:5555/quiz_display?obs=true</code><code>http://localhost:5555/leaderboard?obs=true</code><code>http://localhost:5555/timer_display?obs=true</code><code>http://localhost:5555/quiz_controls?obs=true</code></div><p class="muted">Existing OBS URLs stay the same.</p></article>
+  <article class="card"><h2>Quick start</h2><ol class="checklist"><li>Link TikTok from the sidebar connector.</li><li>Go LIVE on TikTok; QuizMaster will connect chat automatically.</li><li>Load a CSV quiz in Quiz Builder.</li><li>Add the official profile quiz, timer, and leaderboard URLs as OBS browser sources.</li><li>Start the quiz from Quiz Settings.</li></ol></article>
+  <article class="card"><h2>Official profile browser-source URLs</h2><div class="url-list"><code data-url="quiz">Loading official profile URL…</code><code data-url="leaderboard">Loading official profile URL…</code><code data-url="timer">Loading official profile URL…</code><code data-url="controls">Loading official profile URL…</code></div><p class="muted" id="urlHelp">URLs are generated from the signed-in QuizMaster profile ID.</p></article>
 </section>
 <script>
 function parentTikTok(){try{return window.parent?.QuizMasterTikTokMonitor?.getState?.()||null;}catch(e){return null;}}
@@ -28,8 +28,19 @@ subscribeTikTok();refresh();setInterval(refresh,5000);
 <script src="/static/js/quizmaster_url_config.js"></script><script>
 (async function hydrateBrowserSourceUrls(){
   await window.QuizMasterURLs?.ready?.();
-  const urls = ['/quiz_display', '/leaderboard', '/timer_display', '/quiz_controls'].map((path) => window.QuizMasterURLs?.get_public_url?.(path, {obs: 'true'}) || `${window.location.origin}${path}?obs=true`);
-  document.querySelectorAll('.url-list code').forEach((el, idx) => { if (urls[idx]) el.textContent = urls[idx]; });
+  const paths = {quiz: '/quiz_display', leaderboard: '/leaderboard', timer: '/timer_display', controls: '/quiz_controls'};
+  const help = document.getElementById('urlHelp');
+  let generated = 0;
+  document.querySelectorAll('.url-list code[data-url]').forEach((el) => {
+    const url = window.QuizMasterURLs?.get_public_url?.(paths[el.dataset.url], {obs: 'true'}) || '';
+    if (url) {
+      el.textContent = url;
+      generated += 1;
+    } else {
+      el.textContent = 'Sign in with a QuizMaster profile to generate this official URL';
+    }
+  });
+  if (help) help.textContent = generated ? 'These URLs are scoped to your signed-in QuizMaster profile ID.' : 'Official URLs are blocked until the signed-in QuizMaster account has a public widget/profile ID.';
 })();
 </script>
 </body></html>
