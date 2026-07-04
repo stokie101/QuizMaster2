@@ -215,6 +215,18 @@ class TikTokAccountStatsService:
                 self.provider.stop()
             self._started = False
 
+    def clear(self) -> None:
+        """Forget every cached authenticated-account snapshot and delete the
+        on-disk cache. Called on logout so a new account never inherits the
+        previous user's exact TikTok account stats."""
+        with self._lock:
+            self._snapshots = {}
+            for path in (self.cache_path, self.cache_path.with_suffix(".tmp")):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def refresh_now(self, profile_id: str, username: str) -> dict[str, Any]:
         profile_id = str(profile_id or "").strip()
         username = str(username or "").strip().lstrip("@")
