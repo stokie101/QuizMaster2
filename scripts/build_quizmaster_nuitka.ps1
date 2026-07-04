@@ -151,7 +151,10 @@ $nuitkaArgs = @(
     "--include-package=fastapi",
     "--include-package=socketio",
     "--include-package=engineio",
-    "--include-package=tiktoklive",
+    # Import name is TikTokLive (capitalized); the pip dist is 'tiktoklive'.
+    # Nuitka resolves --include-package by import name, so it must match the
+    # package directory casing or it fails with "failed to locate package".
+    "--include-package=TikTokLive",
     "--include-package=keyring",
     "--include-module=core.resources.web_assets_bundle",
     "--include-module=core.services.subscription_gate",
