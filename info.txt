@@ -1,0 +1,18 @@
+Welcome to LiveForge
+
+This application allows you to enjoy live quizzes and games, directly from your device.
+
+Features:
+- Interactive quizzes
+- Leaderboards
+- Customizable settings
+- Backgrounds, sounds, and more!
+
+Important Notes:
+- This software is developed by **LiveForge**.
+- **QuizMaster** is **not affiliated with TikTok**. It uses TikTok services only for educational and entertainment purposes.
+- Make sure your system meets the minimum requirements to run this software.
+
+If you encounter any issues, please contact us at: support@liveforge.online
+
+Thank you for using LiveForge!

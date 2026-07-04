@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html class="widget-page" lang="">
+<head>
+    <meta charset="UTF-8">
+    <title>Overlay</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link href="/widgets/widget_base.css" rel="stylesheet">
+</head>
+<body class="widget-page">
+
+<!-- The actual content injected by widget.js -->
+<div id="widget-container">
+    <div id="loading">Connecting...</div>
+</div>
+
+<script>
+    // Extract widget type from URL: ?type=latest_follower
+    const urlParams = new URLSearchParams(window.location.search);
+    const widgetType = urlParams.get('type') || 'viewer_count';
+
+    // Connect to your local server
+    const socket = io();
+
+    socket.on('connect', () => {
+        document.getElementById('loading').style.display = 'none';
+        console.log(`Widget Connected: ${widgetType}`);
+    });
+
+    // Listen for data updates (Example: server emits 'widget_update')
+    socket.on('widget_update', (data) => {
+        if (data.type === widgetType) {
+            updateUI(data);
+        }
+    });
+
+    function updateUI(data) {
+        const container = document.getElementById('widget-container');
+
+        // Logic for different widgets
+        if (widgetType === 'latest_follower') {
+            container.innerHTML = `
+                <div class="animate-pop" style="display:flex; align-items:center; background:rgba(0,0,0,0.7); padding:10px 20px; border-radius:50px; border-left: 5px solid #00ff99;">
+                    <span style="margin-right:10px;">❤️</span>
+                    <span>${data.username || 'New Follower!'}</span>
+                </div>
+            `;
+        }
+
+        if (widgetType === 'viewer_count') {
+            container.innerHTML = `
+                <div style="font-weight:bold; text-shadow: 2px 2px #000;">
+                    👁️ ${data.count || 0}
+                </div>
+            `;
+        }
+    }
+</script>
+</body>
+</html>

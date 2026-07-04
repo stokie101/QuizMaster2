@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Settings</title>
+  <link href="/core/quiz/css/controls.css" rel="stylesheet">
+  <script src="/static/js/quizmaster_url_config.js"></script>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      window.QUIZ_CONTROLS_IS_OBS_DOCK = params.get('obs') === 'true';
+      window.CLIENT_TYPE = window.QUIZ_CONTROLS_IS_OBS_DOCK ? 'quiz_controls' : 'quiz_settings';
+    })();
+  </script>
+</head>
+<body>
+<div class="qs-save-status" id="saveStatus">Saved</div>
+<main data-qc-root id="quiz-controls" class="qm-settings-shell">
+  <header class="qm-page-hero">
+    <div>
+      <p class="qm-eyebrow" data-mode-label>Quiz setup</p>
+      <h1 class="qm-title">Quiz Settings</h1>
+      <p class="qm-copy" data-settings-intro>Configure the quiz here. Start, pause, skip and stop the quiz from the OBS controls dock.</p>
+    </div>
+    <div class="qm-hero-actions">
+      <button class="qs-gear" data-obs-only hidden type="button" aria-label="Open quiz settings" aria-controls="quiz-settings-panel" aria-expanded="false">⚙</button>
+      <div class="qc-status" aria-live="polite">
+        <p class="qc-status-label">Status</p>
+        <p class="qc-status-value" data-qc-status data-state="idle">Ready</p>
+        <div class="qc-status-hint" data-qc-hint-quiz role="status"></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="obs-run-card" data-obs-only data-qc-controls-view hidden>
+    <div class="qm-card-head"><h2>Run Controls</h2><span class="qm-pill">OBS dock</span></div>
+    <div class="qc-button-grid">
+      <button class="qc-btn" data-qc-load type="button"><span class="qc-label">Load</span></button>
+      <input accept=".csv" id="file-input" hidden type="file">
+      <button class="qc-btn qc-btn-primary" data-qc-start disabled type="button"><span class="qc-label">Start</span></button>
+      <button class="qc-btn qc-btn-warning" data-qc-pause disabled type="button"><span class="qc-label">Pause</span></button>
+      <button class="qc-btn" data-qc-skip disabled type="button"><span class="qc-label">Skip</span></button>
+      <button class="qc-btn qc-btn-danger" data-qc-stop disabled type="button"><span class="qc-label">Stop</span></button>
+    </div>
+    <button class="qc-force-refresh" id="forceQuestionBtn" type="button">Force Refresh</button>
+  </section>
+
+  <section class="settings-grid" id="quiz-settings-panel" data-qs-panel aria-hidden="false">
+    <div class="settings-panel-toolbar" data-obs-only hidden>
+      <div>
+        <p class="qm-eyebrow">Quiz setup</p>
+        <h2>Settings</h2>
+      </div>
+      <button class="qs-close" type="button" aria-label="Close quiz settings">✕</button>
+    </div>
+    <article class="settings-card">
+      <div class="qm-card-head"><h2>Timer</h2></div>
+      <div class="setting-row">
+        <div><label for="timerDuration">Question time</label><p>Seconds players have to answer each question.</p></div>
+        <select class="qs-select" data-setting="TIMER.duration" id="timerDuration"><option value="10">10s</option><option value="15">15s</option><option value="20">20s</option><option value="30">30s</option><option value="45">45s</option><option value="60">60s</option></select>
+      </div>
+      <div class="setting-row">
+        <div><label for="answerDisplayTime">Answer display time</label><p>Seconds the correct answer stays visible before the next state.</p></div>
+        <select class="qs-select" data-setting="TIMER.answer_display_time" id="answerDisplayTime"><option value="3">3s</option><option value="5">5s</option><option value="7">7s</option><option value="10">10s</option><option value="15">15s</option></select>
+      </div>
+    </article>
+
+    <article class="settings-card">
+      <div class="qm-card-head"><h2>Scoring</h2></div>
+      <div class="setting-row"><div><label>Time-based points</label><p>Correct answers score between min and max points based on remaining time.</p></div><button class="qs-toggle" data-setting="POINTS.timer_responsive_points_enabled" id="timerResponsivePoints" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label for="maxPoints">Max points</label><p>Highest score awarded for a correct answer.</p></div><input class="qs-number-input" data-setting="POINTS.max_points" id="maxPoints" min="1" max="100" type="number" value="10"></div>
+      <div class="setting-row"><div><label for="minPoints">Min points</label><p>Lowest score awarded when time-based points are enabled.</p></div><input class="qs-number-input" data-setting="POINTS.min_points" id="minPoints" min="1" max="100" type="number" value="5"></div>
+      <div class="setting-row"><div><label>Fastest finger</label><p>Awards the bonus to the first player who answers correctly for each question.</p></div><button class="qs-toggle" data-setting="POINTS.fastest_finger_enabled" id="fastestFingerEnabled" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label for="fastestFingerBonus">Fastest finger bonus</label><p>Extra points awarded to the first correct answer on each question.</p></div><input class="qs-number-input" data-setting="POINTS.fastest_finger_bonus" id="fastestFingerBonus" min="1" max="50" type="number" value="5"></div>
+      <div class="setting-row"><div><label for="maxIncorrectAttempts">Max wrong attempts</label><p>Maximum incorrect attempts tracked per player for a question.</p></div><input class="qs-number-input" data-setting="POINTS.max_incorrect_attempts" id="maxIncorrectAttempts" min="1" max="10" type="number" value="3"></div>
+    </article>
+
+    <article class="settings-card">
+      <div class="qm-card-head"><h2>Audio</h2></div>
+      <div class="setting-row"><div><label>Timer sound</label><p>Enables the timer audio cue.</p></div><button class="qs-toggle" data-setting="SOUND.enable_timer_sound" id="enableTimerSound" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label for="timerVolume">Timer volume</label><p>Volume for the timer audio cue.</p></div><input class="qs-slider" data-setting="SOUND.timer_volume" id="timerVolume" min="0" max="100" type="range" value="75"><span class="qs-slider-value">75%</span></div>
+      <div class="setting-row"><div><label>Background sound</label><p>Enables quiz background audio.</p></div><button class="qs-toggle" data-setting="SOUND.enable_background_sound" id="enableBackgroundSound" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label for="backgroundVolume">Background volume</label><p>Volume for quiz background audio.</p></div><input class="qs-slider" data-setting="SOUND.background_volume" id="backgroundVolume" min="0" max="100" type="range" value="75"><span class="qs-slider-value">75%</span></div>
+      <div class="setting-row"><div><label>Effects sound</label><p>Enables answer and event sound effects.</p></div><button class="qs-toggle" data-setting="SOUND.enable_effects_sound" id="enableEffectsSound" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label for="effectsVolume">Effects volume</label><p>Volume for quiz sound effects.</p></div><input class="qs-slider" data-setting="SOUND.effects_volume" id="effectsVolume" min="0" max="100" type="range" value="75"><span class="qs-slider-value">75%</span></div>
+    </article>
+
+    <article class="settings-card">
+      <div class="qm-card-head"><h2>Gameplay & Theme</h2></div>
+      <div class="setting-row"><div><label>Auto advance</label><p>Automatically advances quiz flow when enabled.</p></div><button class="qs-toggle" data-setting="GAMEPLAY.auto_advance" id="autoAdvance" type="button" aria-pressed="false"></button></div>
+      <div class="setting-row"><div><label>Overlay appearance</label><p>Overlay appearance is configured in Overlay Studio.</p></div><a class="qs-link" href="/overlay-studio">Open Overlay Studio</a></div>
+    </article>
+  </section>
+</main>
+<script src="/bootstrap.js"></script>
+<script src="/core/quiz/js/quiz_controls.js"></script>
+<script>
+  window.QuizBootstrap.ready().then(({ services }) => {
+    if (services.bridgeClient) window.httpBridgeClient = services.bridgeClient;
+    if (services.serviceLocator) window.ServiceLocator = { get_instance: () => services.serviceLocator };
+    window.QuizControls?.create_singleton?.();
+  }).catch(err => {
+    console.error('[Controls] Bootstrap error:', err);
+    window.QuizControls?.create_singleton?.();
+  });
+</script>
+</body>
+</html>

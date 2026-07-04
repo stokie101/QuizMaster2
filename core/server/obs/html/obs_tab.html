@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overlay Studio - QuizMaster</title>
+  <link href="/styles.css" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="/static/js/quizmaster_url_config.js"></script>
+</head>
+<body data-obs-page="tab">
+  <main class="page-surface">
+    <header class="page-hero">
+      <div>
+        <p class="eyebrow">Broadcast setup</p>
+        <h1>Overlay Studio</h1>
+        <p class="hero-copy">Add QuizMaster’s browser-source overlays to OBS. Route URLs stay stable for existing scenes.</p>
+      </div>
+      <span id="obsStatusBadge" class="pill neutral">Checking OBS…</span>
+    </header>
+
+    <section class="dashboard-grid">
+      <article class="card">
+        <div class="card-head"><h2>Quiz display</h2><span class="pill neutral">Browser source</span></div>
+        <p>Main on-stream quiz question and answer display.</p>
+        <div class="url-list"><code id="quizDisplayUrl">http://localhost:5555/quiz_display?obs=true</code></div>
+        <button class="button secondary copy-url" data-copy="#quizDisplayUrl">Copy URL</button>
+      </article>
+      <article class="card">
+        <div class="card-head"><h2>Leaderboard</h2><span class="pill neutral">Browser source</span></div>
+        <p>Viewer-facing live ranking overlay for the broadcast.</p>
+        <div class="url-list"><code id="leaderboardUrl">http://localhost:5555/leaderboard?obs=true</code></div>
+        <button class="button secondary copy-url" data-copy="#leaderboardUrl">Copy URL</button>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h2>Timer display</h2><span class="pill neutral">Browser source</span></div>
+        <p>Standalone countdown overlay for separate OBS positioning.</p>
+        <div class="url-list"><code id="timerDisplayUrl">http://localhost:5555/timer_display?obs=true</code></div>
+        <button class="button secondary copy-url" data-copy="#timerDisplayUrl">Copy URL</button>
+      </article>
+      <article class="card">
+        <div class="card-head"><h2>Quiz controls</h2><span class="pill neutral">Browser source</span></div>
+        <p>Control overlay route for existing OBS setups that already use it.</p>
+        <div class="url-list"><code id="quizControlsUrl">http://localhost:5555/quiz_controls?obs=true</code></div>
+        <button class="button secondary copy-url" data-copy="#quizControlsUrl">Copy URL</button>
+      </article>
+      <article class="card">
+        <div class="card-head"><h2>OBS connection</h2><span id="obsConnectionPill" class="pill neutral">Not connected</span></div>
+        <p>Optional WebSocket connection for backend status. Scene switching controls have been removed.</p>
+        <label class="settings-label" for="obsHostInput">Host</label>
+        <input id="obsHostInput" class="settings-input" type="text" value="localhost">
+        <label class="settings-label" for="obsPortInput">Port</label>
+        <input id="obsPortInput" class="settings-input" type="number" value="4455">
+        <label class="settings-label" for="obsPasswordInput">Password <span id="savedPasswordBadge" class="muted" style="display:none">saved</span></label>
+        <input id="obsPasswordInput" class="settings-input" type="password" placeholder="Optional password">
+        <label class="checkbox-label" style="margin-top:12px"><input id="autoReconnectToggle" type="checkbox" checked> Auto reconnect</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <button id="saveConnectionBtn" class="button">Save</button>
+          <button id="testConnectionBtn" class="button secondary">Test connection</button>
+          <button id="connectBtn" class="button secondary">Connect</button>
+        </div>
+        <p id="testResult" class="muted" style="display:none"></p>
+      </article>
+    </section>
+
+    <section class="two-column">
+      <article class="card">
+        <h2>Add these as Browser Sources in OBS</h2>
+        <ol class="checklist">
+          <li>Open OBS and choose the scene for your quiz stream.</li>
+          <li>Click <strong>Sources → + → Browser</strong>.</li>
+          <li>Paste one copied URL into the URL field.</li>
+          <li>Set the source size to match your canvas or preferred overlay region.</li>
+          <li>Repeat for the timer, leaderboard, or controls source if needed.</li>
+        </ol>
+      </article>
+      <article class="card">
+        <h2>Preview links</h2>
+        <p class="muted">Open previews in a new tab if iframe previewing is blocked by your desktop shell.</p>
+        <p><a class="button secondary" href="http://localhost:5555/quiz_display?obs=true" target="_blank" rel="noopener">Open quiz display</a></p>
+        <p><a class="button secondary" href="http://localhost:5555/leaderboard?obs=true" target="_blank" rel="noopener">Open leaderboard overlay</a></p>
+        <p><a class="button secondary" href="http://localhost:5555/timer_display?obs=true" target="_blank" rel="noopener">Open timer overlay</a></p>
+        <p><a class="button secondary" href="http://localhost:5555/quiz_controls?obs=true" target="_blank" rel="noopener">Open quiz controls</a></p>
+      </article>
+    </section>
+  </main>
+  <script src="/obs/js/obs_bootstrap.js"></script>
+<script src="/static/js/quizmaster_url_config.js"></script><script>
+(async function hydrateBrowserSourceUrls(){
+  await window.QuizMasterURLs?.ready?.();
+  const set = (id, path) => { const el = document.getElementById(id); if (el) el.textContent = window.QuizMasterURLs?.get_public_url?.(path, {obs: 'true'}) || `${window.location.origin}${path}?obs=true`; };
+  set('quizDisplayUrl', '/quiz_display'); set('leaderboardUrl', '/leaderboard'); set('timerDisplayUrl', '/timer_display'); set('quizControlsUrl', '/quiz_controls');
+  document.querySelectorAll('a[href*="?obs=true"]').forEach((a) => {
+    const url = new URL(a.href);
+    a.href = window.QuizMasterURLs?.get_public_url?.(url.pathname, {obs: 'true'}) || `${window.location.origin}${url.pathname}?obs=true`;
+  });
+})();
+</script>
+</body>
+</html>

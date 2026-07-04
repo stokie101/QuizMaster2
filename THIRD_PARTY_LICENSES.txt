@@ -1,0 +1,23 @@
+Third-Party Libraries Used in QuizMaster:
+
+This product includes software developed by third parties under open source licenses.
+We acknowledge the following libraries and their licenses:
+
+1. PySide6 (LGPL v3.0) - https://doc.qt.io/qtforpython/
+2. requests (Apache License 2.0) - https://docs.python-requests.org/
+3. TikTokLive (MIT License) - https://github.com/TikTokLive
+4. qasync (MIT License) - https://github.com/CabbageDevelopment/qasync
+5. python-dotenv (BSD License) - https://github.com/theskumar/python-dotenv
+6. Flask (BSD-3-Clause) - https://flask.palletsprojects.com/
+7. Werkzeug (BSD-3-Clause) - https://werkzeug.palletsprojects.com/
+8. uvicorn (BSD License) - https://www.uvicorn.org/
+9. FastAPI (MIT License) - https://fastapi.tiangolo.com/
+10. pydantic (MIT License) - https://pydantic.dev/
+11. twitchio (MIT License) - https://github.com/TwitchIO/TwitchIO
+12. websockets (BSD License) - https://github.com/python-websockets/websockets
+13. obs-websocket-py (MIT License) - https://github.com/Elektordi/obs-websocket-py
+
+Each library is used in accordance with its license.
+Full license texts are available via their respective repositories.
+
+QuizMaster © 2026 LiveForge. All rights reserved.

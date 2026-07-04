@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>QuizMaster Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="/styles.css" rel="stylesheet">
+</head><body class="page-surface dashboard-page">
+<header class="page-hero"><div><p class="eyebrow">Live quiz control room</p><h1>Dashboard</h1><p class="hero-copy">Run TikTok LIVE quizzes with OBS-ready overlays, chat answers, and a live leaderboard.</p></div><span class="pill success">Ready</span></header>
+<section class="dashboard-grid">
+  <article class="card status-card"><div class="card-head"><h2>TikTok LIVE</h2><span id="tiktokStatus" class="pill danger">Disconnected</span></div><p id="tiktokHelp">Use the TikTok connector in the sidebar. It will connect chat automatically when your LIVE is available.</p></article>
+  <article class="card status-card"><div class="card-head"><h2>OBS</h2><span id="obsStatus" class="pill neutral">Manual / not connected</span></div><p>Use the browser-source display URLs or connect OBS WebSocket from Overlay Studio.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
+  <article class="card status-card"><div class="card-head"><h2>Current quiz</h2><span id="quizStatus" class="pill warning">No quiz loaded</span></div><p id="quizDetail">Load a CSV quiz to begin.</p><a class="button" href="/quiz_tab.html?mode=builder">Load quiz CSV</a></article>
+  <article class="card status-card"><div class="card-head"><h2>Leaderboard</h2><span id="leaderboardCount" class="pill neutral">0 players</span></div><p>Scores update from real chat answers during the quiz.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
+</section>
+<section class="two-column">
+  <article class="card"><h2>Quick start</h2><ol class="checklist"><li>Link TikTok from the sidebar connector.</li><li>Go LIVE on TikTok; QuizMaster will connect chat automatically.</li><li>Load a CSV quiz in Quiz Builder.</li><li>Add the quiz, timer, and leaderboard URLs as OBS browser sources.</li><li>Start the quiz from Quiz Settings.</li></ol></article>
+  <article class="card"><h2>Browser source URLs</h2><div class="url-list"><code>http://localhost:5555/quiz_display?obs=true</code><code>http://localhost:5555/leaderboard?obs=true</code><code>http://localhost:5555/timer_display?obs=true</code><code>http://localhost:5555/quiz_controls?obs=true</code></div><p class="muted">Existing OBS URLs stay the same.</p></article>
+</section>
+<script>
+function parentTikTok(){try{return window.parent?.QuizMasterTikTokMonitor?.getState?.()||null;}catch(e){return null;}}
+function applyTikTokStatus(status){const s=status||parentTikTok()||{};const connected=!!s.liveConnected;const linked=!!s.linked;tiktokStatus.textContent=connected?(s.message||'LIVE connected'):(linked?'Waiting for LIVE':'Disconnected');tiktokStatus.className='pill '+(connected?'success':(linked?'warning':'danger'));tiktokHelp.textContent=connected?'TikTok LIVE is connected and chat answers are being read.':(linked?'TikTok account linked. Chat will connect automatically when your LIVE is available.':'Use the TikTok connector in the sidebar to link your TikTok account.');}
+function subscribeTikTok(){applyTikTokStatus();try{window.parent?.QuizMasterTikTokMonitor?.subscribe?.(applyTikTokStatus);}catch(e){}}
+async function refresh(){try{const s=await fetch('/api/state/full',{cache:'no-store'}).then(r=>r.json());if(s.success){const q=s.state||{};quizStatus.textContent=q.quiz_loaded?'Quiz loaded':'No quiz loaded';quizStatus.className='pill '+(q.quiz_loaded?'success':'warning');quizDetail.textContent=q.quiz_loaded?`${q.total_questions||0} questions loaded · ${q.state||'IDLE'}`:'Load a CSV quiz to begin.';}}catch(e){}
+try{const snap=await fetch('/api/snapshot',{cache:'no-store'}).then(r=>r.json());const n=(snap.snapshot?.leaderboard||[]).length;leaderboardCount.textContent=`${n} players`;}catch(e){}
+applyTikTokStatus();}
+subscribeTikTok();refresh();setInterval(refresh,5000);
+</script>
+<script src="/static/js/quizmaster_url_config.js"></script><script>
+(async function hydrateBrowserSourceUrls(){
+  await window.QuizMasterURLs?.ready?.();
+  const urls = ['/quiz_display', '/leaderboard', '/timer_display', '/quiz_controls'].map((path) => window.QuizMasterURLs?.get_public_url?.(path, {obs: 'true'}) || `${window.location.origin}${path}?obs=true`);
+  document.querySelectorAll('.url-list code').forEach((el, idx) => { if (urls[idx]) el.textContent = urls[idx]; });
+})();
+</script>
+</body></html>

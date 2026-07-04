@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Quiz Builder - QuizMaster</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap"
+          rel="stylesheet">
+    <link href="/styles.css" rel="stylesheet"/>
+
+    <style>
+        /* Page-local helpers layered on the shared card/pill/button design system. */
+        .source-item + .source-item { margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid rgba(148, 163, 184, 0.12); }
+        .source-item h3 { margin: 0 0 0.5rem; font-size: 0.92rem; font-weight: 700; color: #e2e8f0; }
+        .source-item p { margin: 0.5rem 0 0; }
+        .source-row { display: flex; gap: 0.6rem; align-items: center; }
+        .source-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .copy-btn { white-space: nowrap; }
+        .copy-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+        .steps li { position: relative; padding: 0 0 1rem 2.6rem; counter-increment: step; color: #94a3b8; font-size: 0.86rem; line-height: 1.55; }
+        .steps li:last-child { padding-bottom: 0; }
+        .steps li::before { content: counter(step); position: absolute; left: 0; top: -0.1rem; width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 50%; background: rgba(6, 182, 212, 0.16); border: 1px solid rgba(6, 182, 212, 0.4); color: #67e8f9; font-family: 'Share Tech Mono', monospace; font-weight: 900; font-size: 0.82rem; }
+        .steps li strong { display: block; color: #e2e8f0; font-size: 0.9rem; margin-bottom: 0.2rem; }
+
+        .example { background: rgba(2, 6, 23, 0.6); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 14px; padding: 1rem; overflow-x: auto; margin: 0.25rem 0; }
+        .example pre { margin: 0; font-family: 'Share Tech Mono', monospace; font-size: 0.72rem; color: #94a3b8; line-height: 1.65; }
+        code.field { color: #67e8f9; background: rgba(6, 182, 212, 0.1); border-radius: 5px; padding: 0.05rem 0.35rem; font-family: 'Share Tech Mono', monospace; font-size: 0.8em; }
+    </style>
+    <script src="/static/js/quizmaster_url_config.js"></script>
+</head>
+
+<body class="page-surface dashboard-page">
+<header class="page-hero">
+    <div>
+        <p class="eyebrow">Live quiz control room</p>
+        <h1>Quiz Builder</h1>
+        <p class="hero-copy">Add your OBS browser sources, format your quiz CSV, and start a game. Timer, scoring, and
+            sound settings live in Quiz Settings.</p>
+    </div>
+    <span class="pill success">Quiz ready</span>
+</header>
+
+<section class="two-column">
+    <!-- OBS BROWSER SOURCES (primary action) -->
+    <article class="card">
+        <div class="card-head">
+            <h2>OBS browser sources</h2>
+            <span class="pill neutral">Copy into OBS</span>
+        </div>
+        <p class="muted">Add these as Browser Sources in OBS Studio at 1920×1080, 60 FPS.</p>
+
+        <div class="source-item">
+            <h3>Quiz display — main overlay</h3>
+            <div class="source-row">
+                <code id="quizDisplayUrl">Loading…</code>
+                <button class="button secondary copy-btn" data-copy="#quizDisplayUrl">Copy</button>
+            </div>
+            <p class="muted">Shows questions, timer, and answer options to viewers.</p>
+        </div>
+
+        <div class="source-item">
+            <h3>Leaderboard display</h3>
+            <div class="source-row">
+                <code id="leaderboardUrl">Loading…</code>
+                <button class="button secondary copy-btn" data-copy="#leaderboardUrl">Copy</button>
+            </div>
+            <p class="muted">Real-time scoreboard of the top players.</p>
+        </div>
+
+        <div class="source-item">
+            <h3>Quiz controls — custom dock</h3>
+            <div class="source-row">
+                <code id="controlsDockUrl">Loading…</code>
+                <button class="button secondary copy-btn" data-copy="#controlsDockUrl">Copy</button>
+            </div>
+            <p class="muted">Add as a Custom Browser Dock in OBS for all settings &amp; controls.</p>
+        </div>
+    </article>
+
+    <!-- HOW TO RUN -->
+    <article class="card">
+        <div class="card-head">
+            <h2>How to run a live quiz</h2>
+        </div>
+        <ol class="steps">
+            <li><strong>Set up OBS browser sources</strong>Add the sources on the left to your scene at 1920×1080 and
+                enable 60 FPS.</li>
+            <li><strong>Configure quiz settings</strong>Open Quiz Settings to adjust the timer, points, scoring rules,
+                and sounds.</li>
+            <li><strong>Connect to TikTok LIVE</strong>Link TikTok from the sidebar and go live before you start the
+                quiz.</li>
+            <li><strong>Load &amp; start</strong>Load your questions in Controls, then click Start Quiz. Viewers answer
+                with A, B, C, D in chat.</li>
+        </ol>
+    </article>
+</section>
+
+<section class="two-column">
+    <!-- FORMAT GUIDE -->
+    <article class="card">
+        <div class="card-head">
+            <h2>Format &amp; upload quizzes</h2>
+        </div>
+        <p>Required fields: <code class="field">question</code>, <code class="field">answer_a</code>–<code class="field">answer_d</code>,
+            and <code class="field">correct_answer</code>. Optional: <code class="field">type</code>,
+            <code class="field">difficulty</code>, <code class="field">category</code>.</p>
+        <p class="muted">Each CSV row is one question. <code class="field">correct_answer</code> must be
+            <strong>a</strong>, <strong>b</strong>, <strong>c</strong>, or <strong>d</strong>.</p>
+
+        <div class="example">
+            <pre>question,answer_a,answer_b,answer_c,answer_d,correct_answer,type,difficulty,category
+What color is the sky?,Blue,Green,Red,Yellow,a,multiple_choice,easy,general
+2 + 2 = ?,3,4,5,6,b,multiple_choice,easy,math</pre>
+        </div>
+
+        <p class="muted">Common mistakes: missing headers, blank question text, fewer than two answers filled in, or
+            <code class="field">correct_answer</code> pointing to an empty field.</p>
+
+        <button class="button" id="downloadQuizTemplate">Download quiz template</button>
+    </article>
+
+    <!-- PRO TIPS -->
+    <article class="card">
+        <div class="card-head">
+            <h2>Pro tips</h2>
+        </div>
+        <ul class="checklist">
+            <li><strong>Test before going live.</strong> Run a test quiz to verify your OBS sources, sounds, and timer
+                settings before streaming.</li>
+            <li><strong>Settings sync instantly.</strong> Changes in Quiz Settings apply immediately — no need to restart
+                the quiz or refresh OBS.</li>
+            <li><strong>Use fastest finger wisely.</strong> A short threshold rewards viewers who answer quickly; pair it
+                with time-based points for tighter competition.</li>
+            <li><strong>Dock the controls.</strong> Add Quiz Controls as a Custom Browser Dock (View → Docks → Custom
+                Browser Docks) for seamless access during streams.</li>
+        </ul>
+    </article>
+</section>
+
+<script>
+    // Set public URLs for OBS/browser sources and docks after account identity resolves.
+    (async () => {
+      await window.QuizMasterURLs?.ready?.();
+      const publicUrl = (path, query) => window.QuizMasterURLs?.get_public_url?.(path, query) || '';
+      const urls = {
+        quizDisplay: publicUrl('/quiz_display', { obs: 'true' }),
+        leaderboard: publicUrl('/leaderboard', { obs: 'true' }),
+        controls: publicUrl('/quiz_controls')
+      };
+      const error = 'Account configuration error: public_widget_id is required for production widget URLs.';
+      document.getElementById('quizDisplayUrl').textContent = urls.quizDisplay || error;
+      document.getElementById('leaderboardUrl').textContent = urls.leaderboard || error;
+      document.getElementById('controlsDockUrl').textContent = urls.controls || error;
+      document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.disabled = !document.querySelector(btn.dataset.copy)?.textContent?.startsWith('https://');
+      });
+    })();
+
+    // Download quiz template CSV.
+    const templateButton = document.getElementById('downloadQuizTemplate');
+    if (templateButton) {
+      templateButton.addEventListener('click', () => {
+        const templateCsv = [
+          'question,answer_a,answer_b,answer_c,answer_d,correct_answer,type,difficulty,category',
+          'What color is the sky?,Blue,Green,Red,Yellow,a,multiple_choice,easy,general',
+          '2 + 2 = ?,3,4,5,6,b,multiple_choice,easy,math'
+        ].join('\n');
+        const blob = new Blob([templateCsv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'quiz_template.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Copy-to-clipboard for the OBS source URLs.
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetEl = document.querySelector(btn.dataset.copy);
+        if (!targetEl) return;
+        navigator.clipboard.writeText(targetEl.textContent);
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1600);
+      });
+    });
+</script>
+</body>
+</html>

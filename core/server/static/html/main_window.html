@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html data-client="main_window" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizMaster</title>
+  <link href="/core/assets/images/icon.ico" rel="icon" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="/styles.css?v=20260623-liveforge-logo" rel="stylesheet">
+</head>
+<body class="qm-shell">
+  <div id="loadingOverlay" class="qm-loading">Starting QuizMaster…</div>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand-block brand-block-logo" aria-label="QuizMaster">
+        <img class="brand-logo" src="/core/assets/images/quizmaster-logo.png?v=20260623" alt="QuizMaster">
+      </div>
+      <nav class="nav-stack" id="nav-tabs">
+        <button class="nav-btn active" data-tab="main">Dashboard</button>
+        <button class="nav-btn" data-tab="builder">Quiz Builder</button>
+        <button class="nav-btn" data-tab="control">Quiz Settings</button>
+        <button class="nav-btn" data-tab="overlay">Overlay Studio</button>
+        <button class="nav-btn" data-tab="account">Account</button>
+        <button class="nav-btn" data-tab="settings">Settings</button>
+      </nav>
+    </aside>
+    <main class="workspace">
+      <div class="tab-wrapper" id="contentTab"><iframe id="mainContentFrame" title="QuizMaster workspace" src="/main_tab.html"></iframe></div>
+    </main>
+  </div>
+  <script src="/tiktok_status_monitor.js"></script>
+  <script src="/main_window.js"></script>
+  <script src="/tiktok_sidebar_profile.js"></script>
+</body>
+</html>

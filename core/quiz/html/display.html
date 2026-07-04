@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <title>Quiz Display</title>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Inter:wght@400;600&display=swap" rel="stylesheet"/>
+    <link href="/core/quiz/css/quiz_display.css?v=20260623-answer-phase-sync" rel="stylesheet"/>
+    <link href="/core/quiz/css/overlay_theme.css?v=20260623-answer-phase-sync" rel="stylesheet"/>
+    <script>
+        window.CLIENT_TYPE = "quiz_display";
+        window.QM_RESILIENT_QUIZ_DISPLAY = true;
+        const params = new URLSearchParams(window.location.search);
+        window.ROOM_ID = params.get("room") || "default";
+        window.IS_OBS = params.get("obs") === "true";
+    </script>
+    <script src="/static/js/quizmaster_url_config.js?v=20260623-answer-phase-sync"></script>
+</head>
+<body class="obs-browser obs-canvas live-overlay">
+<script src="/core/quiz/js/overlay_theme.js?v=20260623-answer-phase-sync"></script>
+<script src="/bootstrap.js?v=20260623-answer-phase-sync"></script>
+<script>
+(function initResilientQuizDisplaySync() {
+    "use strict";
+
+    let overlayTheme = null;
+    let latestQuestion = null;
+    let refreshTimer = null;
+    let livePollTimer = null;
+    let refreshInFlight = false;
+    let bridgeAttached = false;
+    let answersRevealed = false;
+    let latestQuestionKey = "";
+
+    function unwrap(payload) {
+        let value = payload;
+        while (Array.isArray(value) && value.length === 1) value = value[0];
+        return value;
+    }
+
+    function normaliseAnswer(answer) {
+        return String(answer == null ? "" : answer).replace(/^[A-D][\).,]\s*/i, "").trim();
+    }
+
+    function questionKey(q) {
+        if (!q || typeof q !== "object") return "";
+        return [q.question_number || q.number || q.index || "", q.question || q.text || q.prompt || ""].join("::");
+    }
+
+    function normaliseQuestion(question, options = {}) {
+        const q = unwrap(question);
+        if (!q || typeof q !== "object") return null;
+        const answers = Array.isArray(q.answers) ? q.answers.map(normaliseAnswer) : [];
+        const key = questionKey(q);
+        const sameQuestion = key && key === latestQuestionKey;
+        const reveal = Boolean(options.reveal || (sameQuestion && answersRevealed));
+        return {
+            ...q,
+            question: q.question || q.text || q.prompt || "Get Ready!",
+            answers,
+            votes: Array.isArray(q.votes) ? q.votes : (Array.isArray(q.vote_percentages) ? q.vote_percentages : []),
+            question_number: Number(q.question_number || q.number || q.index || 0) || 0,
+            total_questions: Number(q.total_questions || q.total || 0) || 0,
+            correct_index: reveal && Number.isFinite(Number(q.correct_index)) ? Number(q.correct_index) : q.correct_index,
+            reveal_answers: reveal,
+            show_correct: reveal
+        };
+    }
+
+    function stateValue(state) {
+        return String(unwrap(state) || "").toLowerCase();
+    }
+
+    function stateIsLive(state) {
+        const value = stateValue(state);
+        return value === "running" || value === "active" || value === "question_active" || value === "paused";
+    }
+
+    function stateIsIdle(state) {
+        const value = stateValue(state);
+        return value === "idle" || value === "ended" || value === "stopped" || value === "completed";
+    }
+
+    function applyImportant(row, prop, value) {
+        row.style.setProperty(prop, value, "important");
+    }
+
+    function clearForcedHighlight(row) {
+        row.classList.remove("correct", "is-correct");
+        row.dataset.correct = "false";
+        ["background", "border-color", "box-shadow", "color", "outline", "transform"].forEach(prop => row.style.removeProperty(prop));
+    }
+
+    function forceVisibleHighlight() {
+        const q = latestQuestion;
+        const reveal = Boolean(q && (q.reveal_answers || q.show_answers || q.show_correct || answersRevealed));
+        const correctIndex = Number(q && q.correct_index);
+        const hasCorrect = reveal && Number.isFinite(correctIndex) && correctIndex >= 0;
+        const rows = [...document.querySelectorAll(".qm-answer-list .qm-ans")];
+        rows.forEach((row, index) => {
+            if (!hasCorrect || index !== correctIndex) {
+                clearForcedHighlight(row);
+                return;
+            }
+            row.classList.add("correct", "is-correct");
+            row.dataset.correct = "true";
+            applyImportant(row, "background", "linear-gradient(90deg, rgba(0,255,136,.42), rgba(124,92,255,.30))");
+            applyImportant(row, "border-color", "var(--qm-accent2, #00ff88)");
+            applyImportant(row, "box-shadow", "0 0 30px rgba(0,255,136,.85), inset 0 0 0 2px rgba(255,255,255,.16)");
+            applyImportant(row, "color", "var(--qm-text, #ffffff)");
+            applyImportant(row, "outline", "3px solid rgba(0,255,136,.72)");
+            applyImportant(row, "transform", "scale(1.02)");
+        });
+    }
+
+    function render() {
+        if (!window.OverlayTheme || !overlayTheme) return;
+        window.OverlayTheme.renderQuiz(document.body, overlayTheme, latestQuestion);
+        requestAnimationFrame(forceVisibleHighlight);
+        setTimeout(forceVisibleHighlight, 50);
+    }
+
+    async function loadOverlayTheme() {
+        if (!window.OverlayTheme) return;
+        overlayTheme = await window.OverlayTheme.loadTheme();
+        render();
+    }
+
+    function setQuestion(question, options = {}) {
+        const next = normaliseQuestion(question, options);
+        if (!next) return false;
+        const key = questionKey(next);
+        if (key && key !== latestQuestionKey) {
+            answersRevealed = Boolean(options.reveal);
+            latestQuestionKey = key;
+        }
+        if (options.reveal) answersRevealed = true;
+        next.reveal_answers = answersRevealed;
+        next.show_correct = answersRevealed;
+        if (answersRevealed && Number.isFinite(Number(next.correct_index))) next.correct_index = Number(next.correct_index);
+        latestQuestion = next;
+        render();
+        return true;
+    }
+
+    function correctIndexFromAnswerMap(map) {
+        const data = unwrap(map);
+        if (!data || typeof data !== "object") return null;
+        const letters = "ABCD";
+        for (let i = 0; i < letters.length; i++) {
+            const upper = letters[i];
+            const lower = upper.toLowerCase();
+            if (data[upper] === true || data[lower] === true) return i;
+        }
+        return null;
+    }
+
+    function revealAnswers(payload) {
+        if (!latestQuestion) {
+            answersRevealed = true;
+            burstRefresh("answers_without_question", 3000);
+            return;
+        }
+        const idx = correctIndexFromAnswerMap(payload);
+        answersRevealed = true;
+        latestQuestion = {
+            ...latestQuestion,
+            correct_index: idx != null ? idx : Number(latestQuestion.correct_index),
+            reveal_answers: true,
+            show_correct: true
+        };
+        render();
+    }
+
+    function revealFromTimer() {
+        answersRevealed = true;
+        if (latestQuestion) {
+            latestQuestion = {
+                ...latestQuestion,
+                correct_index: Number.isFinite(Number(latestQuestion.correct_index)) ? Number(latestQuestion.correct_index) : latestQuestion.correct_index,
+                reveal_answers: true,
+                show_correct: true
+            };
+            render();
+        }
+        burstRefresh("timer_expired_reveal", 4000);
+    }
+
+    function startLivePolling() {
+        if (livePollTimer) return;
+        livePollTimer = setInterval(() => refreshFromServer("recovery_poll"), 1000);
+    }
+
+    function stopLivePolling() {
+        if (!livePollTimer) return;
+        clearInterval(livePollTimer);
+        livePollTimer = null;
+    }
+
+    function shouldRevealFromState(data, state, current) {
+        const value = stateValue(state);
+        return Boolean(
+            data.answers_revealed ||
+            data.reveal_answers ||
+            data.show_correct ||
+            data.timer_kind === "answer" ||
+            (value === "running" && data.has_current_question && current && data.timer_running === false)
+        );
+    }
+
+    async function refreshFromServer(reason) {
+        if (refreshInFlight) return;
+        refreshInFlight = true;
+        try {
+            const response = await fetch(`/api/debug/display_state?ts=${Date.now()}&reason=${encodeURIComponent(reason || "sync")}`, { cache: "no-store" });
+            if (!response.ok) return;
+            const data = await response.json();
+            const state = data.state;
+            const current = data.current_question || data.current_question_data || null;
+            if (data.has_current_question && current && stateIsLive(state)) {
+                const currentKey = questionKey(current);
+                const stateReveal = shouldRevealFromState(data, state, current);
+                const shouldReveal = stateReveal || (answersRevealed && (!latestQuestionKey || !currentKey || currentKey === latestQuestionKey));
+                setQuestion({
+                    ...current,
+                    question_number: data.question_number || current.question_number || current.number,
+                    total_questions: data.total_questions || current.total_questions || current.total
+                }, { reveal: shouldReveal });
+                return;
+            }
+            if (stateIsIdle(state)) clearQuestion();
+        } catch (error) {
+            console.warn("[QuizDisplay Sync] Refresh failed:", error);
+        } finally {
+            refreshInFlight = false;
+        }
+    }
+
+    function burstRefresh(reason, durationMs = 6500) {
+        refreshFromServer(reason);
+        if (refreshTimer) clearInterval(refreshTimer);
+        const until = Date.now() + durationMs;
+        refreshTimer = setInterval(() => {
+            if (Date.now() > until) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+                return;
+            }
+            refreshFromServer(reason);
+        }, 500);
+    }
+
+    function applyQuestion(payload) {
+        const q = unwrap(payload);
+        if (!q || typeof q !== "object") {
+            burstRefresh("empty_question_changed", 3000);
+            return;
+        }
+        setQuestion(q, { reveal: false });
+    }
+
+    function clearQuestion() {
+        answersRevealed = false;
+        latestQuestionKey = "";
+        latestQuestion = null;
+        render();
+    }
+
+    function syncFromTimer(reason) {
+        startLivePolling();
+        burstRefresh(reason || "timer_sync", 4500);
+    }
+
+    function attachBridgeClient(client) {
+        if (!client || typeof client.on !== "function" || bridgeAttached) return;
+        bridgeAttached = true;
+        window.httpBridgeClient = client;
+        window.OverlayTheme?.onThemeUpdate?.(client, (nextTheme) => {
+            overlayTheme = window.OverlayTheme.normTheme(nextTheme?.theme || nextTheme);
+            render();
+        });
+        client.on("signal:question_changed", applyQuestion);
+        client.on("question_changed", applyQuestion);
+        client.on("signal:answers_highlighted", revealAnswers);
+        client.on("answers_highlighted", revealAnswers);
+        client.on("signal:showing_answers", revealAnswers);
+        client.on("showing_answers", revealAnswers);
+        client.on("signal:timer_started", () => syncFromTimer("timer_started"));
+        client.on("timer_started", () => syncFromTimer("timer_started"));
+        client.on("signal:timer_tick", () => startLivePolling());
+        client.on("timer_tick", () => startLivePolling());
+        client.on("signal:timer_expired", revealFromTimer);
+        client.on("timer_expired", revealFromTimer);
+        client.on("signal:quiz_started", () => { answersRevealed = false; startLivePolling(); burstRefresh("quiz_started", 9000); });
+        client.on("quiz_started", () => { answersRevealed = false; startLivePolling(); burstRefresh("quiz_started", 9000); });
+        client.on("signal:quiz_ended", clearQuestion);
+        client.on("quiz_ended", clearQuestion);
+        client.on("signal:state_changed", (state) => {
+            if (stateIsLive(state)) { startLivePolling(); burstRefresh("state_live", 6000); }
+            if (stateIsIdle(state)) clearQuestion();
+        });
+        client.on("state_changed", (state) => {
+            if (stateIsLive(state)) { startLivePolling(); burstRefresh("state_live", 6000); }
+            if (stateIsIdle(state)) clearQuestion();
+        });
+        client.on("ready", () => burstRefresh("client_ready", 5000));
+        client.on("ws_open", () => burstRefresh("ws_open", 5000));
+        startLivePolling();
+        burstRefresh("bridge_attached", 7000);
+    }
+
+    async function start() {
+        console.log("[Display] Resilient quiz display sync active; answer reveal recovered from backend state");
+        await loadOverlayTheme();
+        startLivePolling();
+        window.QuizBootstrap.ready().then(({ services }) => {
+            if (services.bridgeClient) attachBridgeClient(services.bridgeClient);
+            if (services.serviceLocator) window.ServiceLocator = { get_instance: () => services.serviceLocator };
+        }).catch(err => {
+            console.error("[Display] Bootstrap error:", err);
+            burstRefresh("bootstrap_error_fallback", 5000);
+        });
+        const fallback = setInterval(() => {
+            if (bridgeAttached) { clearInterval(fallback); return; }
+            if (window.httpBridgeClient) attachBridgeClient(window.httpBridgeClient);
+        }, 250);
+        burstRefresh("page_load", 5000);
+    }
+
+    window.addEventListener("beforeunload", () => {
+        stopLivePolling();
+        if (refreshTimer) clearInterval(refreshTimer);
+    });
+
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+    else start();
+})();
+</script>
+</body>
+</html>

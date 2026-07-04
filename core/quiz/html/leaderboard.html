@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Live Leaderboard Overlay</title>
+  <meta content="width=device-width, initial-scale=1" name="viewport">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <link href="/core/quiz/css/overlay_theme.css?v=20260623-live-recover" rel="stylesheet">
+  <script>
+    window.CLIENT_TYPE = "leaderboard";
+    const params = new URLSearchParams(window.location.search);
+    window.ROOM_ID = params.get("room") || "default";
+    window.IS_OBS_OVERLAY = params.get("obs") === "true";
+  </script>
+  <script src="/static/js/quizmaster_url_config.js?v=20260623-live-recover"></script>
+  <script src="/core/quiz/js/overlay_theme.js?v=20260623-live-recover"></script>
+</head>
+<body class="obs-browser obs-canvas leaderboard-overlay">
+  <script src="/bootstrap.js?v=20260623-live-recover"></script>
+  <script src="/core/quiz/js/leaderboard.js?v=20260623-live-recover"></script>
+</body>
+</html>

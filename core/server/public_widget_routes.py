@@ -1,0 +1,172 @@
+"""Helpers for exposing desktop widget routes through account-scoped public paths."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from datetime import datetime, UTC
+from pathlib import Path
+
+from fastapi import Depends, Header, HTTPException, Request
+from fastapi.routing import APIRoute
+
+from core.server.session_identity import validate_profile_or_warn
+from core.server.widget_sessions import SessionAuthorizationError, WidgetSessionStore
+
+logger = logging.getLogger(__name__)
+_SESSION_FEATURES = {"quiz"}
+
+
+def _validate_public_widget_id(public_widget_id: str) -> str:
+    try:
+        return validate_profile_or_warn(public_widget_id, route="public_widget_route")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _write_state_rejection(request: Request, reason: str) -> None:
+    try:
+        log_dir = Path("logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / "state.log").open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"{datetime.now(UTC).isoformat()} status=400 path={request.url.path} "
+                f"method={request.method} reason={reason} query={dict(request.query_params)}\n"
+            )
+    except Exception:
+        logger.debug("Could not write state rejection log", exc_info=True)
+
+
+def _session_id(request: Request) -> str:
+    value = str(request.query_params.get("session") or "").strip()
+    if not value:
+        reason = "A widget session ID is required"
+        if request.url.path.endswith("/api/state") or request.url.path.endswith("/api/state/full"):
+            _write_state_rejection(request, reason)
+        raise HTTPException(status_code=400, detail=reason)
+    return value
+
+
+def _public_session_dependency(feature: str):
+    def validate(request: Request, public_widget_id: str):
+        try:
+            return WidgetSessionStore.get_instance().resolve_public(feature, public_widget_id, _session_id(request))
+        except SessionAuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return validate
+
+
+
+
+def _public_projection(feature: str) -> dict:
+    """Read the current feature state and remove private control-only fields."""
+    from core.services.service_locator import ServiceLocator
+    locator = ServiceLocator.get_instance()
+    try:
+        manager = locator.get_service("QuizManager") if hasattr(locator, "get_service") else locator.get("QuizManager")
+    except (ValueError, RuntimeError, AttributeError):
+        manager = None
+    state = manager.get_current_state() if manager else {}
+    if manager and getattr(manager, "leaderboard_manager", None):
+        leaderboard = getattr(manager.leaderboard_manager, "leaderboard_data", None)
+        if leaderboard is not None:
+            state = {**state, "leaderboard": leaderboard}
+
+    private_keys = {
+        "correct_answer", "correctAnswer", "answer_key", "admin_settings",
+        "control_token", "access_token", "refresh_token", "authorization",
+    }
+
+    def sanitize(value):
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items() if key not in private_keys}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    return sanitize(dict(state or {}))
+
+
+def _persist_control_snapshot(feature: str, session, request: Request) -> None:
+    snapshot = _public_projection(feature)
+    updated = WidgetSessionStore.get_instance().update_snapshot(
+        feature, session.session_id, session.owner_user_id, snapshot,
+        public_snapshot=snapshot, event_type=request.url.path.rsplit("/", 1)[-1] or "command",
+    )
+    try:
+        from core.services.service_locator import ServiceLocator
+        locator = ServiceLocator.get_instance()
+        server = locator.get_service("Server") if hasattr(locator, "get_service") else locator.get("Server")
+        if server and hasattr(server, "emit_to_room"):
+            event_name = "snapshot"
+            payload = {"snapshot": snapshot, "version": updated.version, "session_id": updated.session_id}
+            server.emit_to_room(event_name, payload, updated.room)
+    except Exception as exc:
+        logger.warning("scoped_widget_emit_failed feature=%s session_id=%s error=%s", feature, session.session_id, exc)
+
+
+def _control_session_dependency(feature: str):
+    def validate(
+        request: Request,
+        public_widget_id: str,
+        x_quizmaster_control_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        session_id = _session_id(request)
+        store = WidgetSessionStore.get_instance()
+        try:
+            session = store.resolve_public(feature, public_widget_id, session_id)
+            if x_quizmaster_control_token:
+                authorized = store.authorize_control(feature, session_id, x_quizmaster_control_token)
+            else:
+                # Desktop requests may use the normal access token in a header. The
+                # token is never accepted in a URL and ownership is derived server-side.
+                from core.server.widget_session_routes import _authenticated_owner
+                owner_user_id, _ = _authenticated_owner(authorization)
+                authorized = store.authorize_owner(feature, session.session_id, owner_user_id)
+            yield authorized
+            _persist_control_snapshot(feature, authorized, request)
+        except HTTPException:
+            raise
+        except SessionAuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return validate
+
+
+def add_public_widget_aliases(
+    app,
+    routes: list[APIRoute],
+    *,
+    include: Callable[[str], bool],
+    feature: str,
+) -> None:
+    """Mirror routes below ``/u/{public_widget_id}`` with scoped authorization."""
+    existing = {(route.path, tuple(sorted(route.methods or ()))) for route in app.routes if isinstance(route, APIRoute)}
+    for route in routes:
+        if not include(route.path):
+            continue
+        alias = f"/u/{{public_widget_id}}{route.path}"
+        methods = list(route.methods or ["GET"])
+        key = (alias, tuple(sorted(methods)))
+        if key in existing:
+            continue
+
+        dependencies = [Depends(_validate_public_widget_id)]
+        if feature in _SESSION_FEATURES:
+            dependencies = [Depends(_public_session_dependency(feature))]
+            if any(method.upper() not in {"GET", "HEAD", "OPTIONS"} for method in methods):
+                dependencies.append(Depends(_control_session_dependency(feature)))
+
+        app.add_api_route(
+            alias,
+            route.endpoint,
+            methods=methods,
+            name=f"public_{feature}_{route.name}",
+            response_model=route.response_model,
+            status_code=route.status_code,
+            response_class=route.response_class,
+            dependencies=dependencies,
+            include_in_schema=False,
+        )
+        existing.add(key)
+        logger.debug("Registered public %s route: %s", feature, alias)

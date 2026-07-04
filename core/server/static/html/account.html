@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizMaster Account</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="/styles.css" rel="stylesheet">
+  <style>
+    html, body { min-height: 100%; margin: 0; background: #020617; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .account-page { min-height: 100vh; padding: 32px; position: relative; overflow: hidden; }
+    .account-page::before { content: ''; position: fixed; inset: -30%; background: radial-gradient(circle at 20% 15%, rgba(6,182,212,.22), transparent 32%), radial-gradient(circle at 85% 20%, rgba(99,102,241,.18), transparent 30%); pointer-events:none; }
+    .account-shell { position: relative; max-width: 1120px; margin: 0 auto; }
+    .hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom: 24px; }
+    .eyebrow { color:#67e8f9; font-family:'Share Tech Mono', monospace; text-transform:uppercase; letter-spacing:.16em; font-weight:900; font-size:.78rem; }
+    h1 { margin:.4rem 0 0; font-family:'Orbitron', sans-serif; font-size: clamp(2rem, 4vw, 3.3rem); text-transform:uppercase; font-style:italic; color:white; }
+    .hero p { color:#94a3b8; max-width: 720px; line-height:1.6; }
+    .grid { display:grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 20px; }
+    .card { background: rgba(2,6,23,.78); border:1px solid rgba(6,182,212,.22); box-shadow: 0 18px 60px rgba(0,0,0,.28); border-radius: 22px; padding: 24px; backdrop-filter: blur(16px); }
+    .profile-header { display:flex; align-items:center; gap:18px; padding-bottom:20px; border-bottom:1px solid rgba(148,163,184,.16); }
+    .avatar { width:64px; height:64px; border-radius:18px; display:grid; place-items:center; background:linear-gradient(135deg,#06b6d4,#6366f1); color:#001018; font-family:'Orbitron', sans-serif; font-weight:900; font-size:1.7rem; }
+    .profile-name { color:white; font-size:1.45rem; font-weight:900; margin:0; }
+    .profile-email { color:#94a3b8; margin:.25rem 0 0; font-family:'Share Tech Mono', monospace; }
+    .status-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:14px; margin-top:20px; }
+    .stat { background:rgba(15,23,42,.62); border:1px solid rgba(148,163,184,.14); border-radius:16px; padding:16px; }
+    .stat label { display:block; color:#64748b; font-family:'Share Tech Mono', monospace; font-size:.72rem; text-transform:uppercase; letter-spacing:.12em; margin-bottom:8px; font-weight:900; }
+    .stat strong { color:#f8fafc; font-size:1rem; word-break:break-word; }
+    .pill { display:inline-flex; align-items:center; gap:8px; color:#bbf7d0; background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.25); border-radius:999px; padding:8px 12px; font-weight:900; font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; }
+    .pill::before { content:''; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 12px #10b981; }
+    .actions { display:flex; flex-direction:column; gap:12px; }
+    .btn { width:100%; border-radius:14px; border:1px solid rgba(6,182,212,.35); padding:14px 16px; font-weight:900; font-family:'Share Tech Mono', monospace; text-transform:uppercase; letter-spacing:.1em; cursor:pointer; color:white; background:rgba(15,23,42,.75); transition: transform .18s ease, border-color .18s ease, background .18s ease; }
+    .btn:hover { transform: translateY(-1px); border-color:#06b6d4; background:rgba(6,182,212,.12); }
+    .btn.primary { background:#06b6d4; color:#001018; border-color:#06b6d4; }
+    .btn.danger { border-color:rgba(248,113,113,.38); color:#fecaca; }
+    .btn.danger:hover { background:rgba(127,29,29,.2); border-color:#f87171; }
+    .notice { margin-top:16px; color:#94a3b8; line-height:1.55; font-size:.92rem; }
+    .error { display:none; margin-bottom:16px; padding:14px; border-radius:14px; border:1px solid rgba(248,113,113,.4); background:rgba(127,29,29,.18); color:#fecaca; }
+    .loading { color:#67e8f9; font-family:'Share Tech Mono', monospace; text-transform:uppercase; letter-spacing:.1em; }
+    @media (max-width: 900px) { .grid { grid-template-columns:1fr; } .hero { align-items:flex-start; flex-direction:column; } .status-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main class="account-page">
+    <section class="account-shell">
+      <div class="hero">
+        <div>
+          <div class="eyebrow">QuizMaster Account</div>
+          <h1>Profile</h1>
+          <p>Manage the shared website login connected to this QuizMaster desktop app. Product access is scoped to the QuizMaster app slug, separate from LiveForge.</p>
+        </div>
+        <span class="pill" id="connectionPill">Checking</span>
+      </div>
+
+      <div class="error" id="accountError"></div>
+
+      <div class="grid">
+        <section class="card">
+          <div id="loadingState" class="loading">Loading account profile…</div>
+          <div id="profileState" hidden>
+            <div class="profile-header">
+              <div class="avatar" id="avatarInitial">QM</div>
+              <div>
+                <h2 class="profile-name" id="displayName">QuizMaster User</h2>
+                <p class="profile-email" id="email">—</p>
+              </div>
+            </div>
+            <div class="status-grid">
+              <div class="stat"><label>App</label><strong id="appName">QuizMaster</strong></div>
+              <div class="stat"><label>App slug</label><strong id="appSlug">quizmaster</strong></div>
+              <div class="stat"><label>QuizMaster plan</label><strong id="plan">Free</strong></div>
+              <div class="stat"><label>Subscription status</label><strong id="subscriptionStatus">Inactive</strong></div>
+              <div class="stat"><label>App connection</label><strong id="appStatus">Linked</strong></div>
+              <div class="stat"><label>QuizMaster public widget routing</label><strong id="widgetStatus">Pending website routing</strong></div>
+              <div class="stat"><label>Cloud sync</label><strong id="syncStatus">Not enabled yet</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="card">
+          <div class="actions">
+            <button class="btn primary" id="dashboardBtn">Open web dashboard</button>
+            <button class="btn" id="retryBtn">Retry profile load</button>
+            <button class="btn danger" id="logoutBtn">Logout</button>
+          </div>
+          <p class="notice">Logging out clears the saved QuizMaster desktop auth session only. It does not log out LiveForge, delete quizzes, local profile data, overlays, analytics, or app settings.</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <script src="/account.js"></script>
+</body>
+</html>

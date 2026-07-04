@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html data-client="settings" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - QuizMaster</title>
+  <link href="/core/assets/images/icon.ico" rel="icon" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="/styles.css" rel="stylesheet">
+  <link href="/settings.css" rel="stylesheet">
+  <script src="/static/js/quizmaster_url_config.js"></script>
+</head>
+<body class="settings-page">
+  <div class="bg-space"></div>
+  <div class="bg-gradient-overlay"></div>
+  <div class="scanline"></div>
+  <main class="settings-shell custom-scrollbar">
+    <header class="settings-hero">
+      <div>
+        <div class="eyebrow">QuizMaster Control Center</div>
+        <h1 id="settingsTitle">Settings</h1>
+        <p id="settingsDescription">Fine-tune QuizMaster for your stream workflow.</p>
+      </div>
+    </header>
+
+    <section id="settingsContent" class="settings-content"></section>
+  </main>
+
+  <div id="settingsToast" class="settings-toast" role="status" aria-live="polite"></div>
+  <script src="/settings.js"></script>
+  <script src="/settings_prefs.js"></script>
+</body>
+</html>

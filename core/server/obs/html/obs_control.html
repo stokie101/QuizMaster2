@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Scene Control</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body data-obs-page="control" style="margin:0;padding:1rem;background:#0f172a;color:#e2e8f0;font-family:Inter,sans-serif;">
+<div style="max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:.9rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(2,6,23,0.7);padding:.9rem;border:1px solid rgba(148,163,184,.2);border-radius:.75rem;">
+    <h2 style="margin:0;font-family:Orbitron,sans-serif;">🎬 SCENE MANAGER</h2>
+    <div id="connectionDot" style="display:flex;align-items:center;gap:.45rem;font-size:.85rem;"><span style="width:.7rem;height:.7rem;border-radius:999px;background:#ef4444;display:inline-block;"></span><span>Disconnected</span></div>
+  </div>
+
+  <div style="background:rgba(2,6,23,0.7);padding:.9rem;border:1px solid rgba(148,163,184,.2);border-radius:.75rem;">
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;">Current Scene</div>
+    <div id="dockCurrentScene" style="font-family:Orbitron,sans-serif;font-size:1.25rem;color:#06b6d4;margin-top:.35rem;">—</div>
+    <div id="dockLastSwitched" style="font-size:.75rem;color:#94a3b8;margin-top:.2rem;">Last switched: —</div>
+  </div>
+
+  <div style="background:rgba(2,6,23,0.7);padding:.9rem;border:1px solid rgba(148,163,184,.2);border-radius:.75rem;">
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem;">Scene Buttons</div>
+    <div id="sceneButtons" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.45rem;"></div>
+  </div>
+
+  <div style="background:rgba(2,6,23,0.7);padding:.9rem;border:1px solid rgba(148,163,184,.2);border-radius:.75rem;">
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem;">Quick Triggers</div>
+    <div id="quickTriggers" style="display:flex;flex-direction:column;gap:.45rem;"></div>
+  </div>
+
+  <div id="dockStatus" style="font-size:.8rem;color:#94a3b8;">Ready.</div>
+</div>
+<script src="/obs/js/obs_bootstrap.js"></script>
+</body>
+</html>

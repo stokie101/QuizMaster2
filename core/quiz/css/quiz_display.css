@@ -1,0 +1,458 @@
+/* =========================================================
+OPTION 1: COMPACT STACK - Best for TikTok/Stories
+Vertical layout with everything tightly stacked in safe zone
+========================================================= */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #fff;
+  overflow: hidden;
+}
+
+#quiz-root, .qd-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+  padding-top: 5vh !important; /* Fixed anchor point from top */
+}
+
+/* Hide any legacy timer mount completely to avoid reserving height */
+.qd-timer-mount {
+  display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* =========================================================
+BACKGROUND LAYER
+========================================================= */
+.quiz-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.quiz-bg svg {
+  position: absolute;
+  opacity: 0.12;
+  width: 60px;
+  height: 60px;
+  filter: drop-shadow(0 0 12px rgba(255,255,255,0.25));
+  animation: floatDrift 18s linear infinite;
+}
+
+@keyframes floatDrift {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  50%  { transform: translate(80px, -100px) rotate(15deg); }
+  100% { transform: translate(-30px, -200px) rotate(-8deg); }
+}
+
+/* =========================================================
+QUIZ FRAME - Vertical Safe Zone
+========================================================= */
+#quizFrame {
+  width: 92%;
+  max-width: 480px;
+  max-height: 90vh;
+  border-radius: 20px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 2;
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);
+  /* Anchor to top - only expand downward */
+  margin-top: 0;
+  transform-origin: top center;
+}
+
+#quizFrame::-webkit-scrollbar {
+  width: 4px;
+}
+
+#quizFrame::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+#quizFrame::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 255, 0.3);
+  border-radius: 2px;
+}
+
+#quizFrame::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 255, 0.5);
+}
+.quiz-bg {
+    background: transparent !important;
+}
+body {
+    background: transparent !important;
+}
+html {
+    background: transparent !important;
+}
+
+/* =========================================================
+TOP SECTION (image zone)
+- Collapsed by default; opens only when an image successfully loads
+========================================================= */
+.qd-top {
+  display: none !important;   /* collapsed until we actually have an image */
+  min-height: 0 !important;   /* prevent JS min-height from reserving space */
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  z-index: 3;
+}
+
+/* When JS confirms an image has loaded, it adds body.qd-has-image */
+body.qd-has-image .qd-top {
+  display: flex !important;
+  min-height: clamp(120px, 22vh, 220px) !important;
+}
+
+/* Image styling: hidden by default; shown only when loaded */
+.qd-image {
+  display: none;
+  width: 100%;
+  max-height: 40vh;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid rgba(0,255,255,0.25);
+  box-shadow: 0 0 12px rgba(0,255,255,0.2);
+}
+
+/* =========================================================
+QUESTION WITH INTEGRATED TIMER BAR
+========================================================= */
+#questionLabel {
+  font-family: "Audiowide", system-ui, sans-serif;
+  font-size: clamp(20px, 5vw, 28px);
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 0 15px rgba(0,255,255,0.8), 0 0 6px rgba(0,255,255,1);
+  background: rgba(0, 0, 0, 0.8);
+  border: 2px solid rgba(0,255,255,0.4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  width: 100%;
+  line-height: 1.25;
+  animation: questionReveal 0.6s ease-out;
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
+  /* TEXT WRAPPING FIXES */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  hyphens: auto;
+  min-height: fit-content;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Ensure question text sits above the timer bar overlay */
+#questionLabel .question-text {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  text-align: center;
+}
+
+/* Legacy ::before timer bar (kept for fallback) */
+#questionLabel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(138, 43, 226, 0.4), rgba(0, 212, 255, 0.4));
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  transition: width 0.3s linear;
+  z-index: 0;
+  border-radius: 10px;
+}
+
+/* When we render a real timer bar element, hide the ::before fallback */
+#questionLabel.has-real-bar::before {
+  content: none !important;
+}
+
+/* Real timer overlay: absolutely positioned so it never pushes content */
+#questionLabel .question-timer-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(138, 43, 226, 0.4), rgba(0, 212, 255, 0.4));
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  transition: width 0.3s linear;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 0;
+  animation: timer-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes timer-shimmer {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.5), 0 0 15px rgba(138, 43, 226, 0.4);
+  }
+}
+
+/* Warning state (30% remaining) */
+#questionLabel.timer-warning::before {
+  background: linear-gradient(90deg, rgba(255, 136, 0, 0.4), rgba(255, 165, 0, 0.4));
+  box-shadow: 0 0 20px rgba(255, 165, 0, 0.3);
+  animation: warning-pulse 1s ease-in-out infinite;
+}
+
+#questionLabel.timer-warning .question-timer-bar {
+  background: linear-gradient(90deg, rgba(255, 136, 0, 0.5), rgba(255, 165, 0, 0.5));
+  animation: warning-pulse 1s ease-in-out infinite;
+}
+
+@keyframes warning-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 165, 0, 0.4);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(255, 165, 0, 0.7), 0 0 15px rgba(255, 136, 0, 0.5);
+    filter: brightness(1.2);
+  }
+}
+
+/* Critical state (10% remaining) */
+#questionLabel.timer-critical::before {
+  background: linear-gradient(90deg, rgba(255, 0, 0, 0.6), rgba(255, 68, 68, 0.6));
+  box-shadow: 0 0 25px rgba(255, 68, 68, 0.4);
+  animation: critical-flash 0.4s ease-in-out infinite;
+}
+
+#questionLabel.timer-critical .question-timer-bar {
+  background: linear-gradient(90deg, rgba(255, 0, 0, 0.6), rgba(255, 68, 68, 0.6));
+  animation: critical-flash 0.4s ease-in-out infinite;
+}
+
+#questionLabel.timer-critical {
+  animation: critical-shake 0.4s ease-in-out infinite;
+}
+
+@keyframes critical-flash {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 30px rgba(255, 0, 0, 0.6), 0 0 15px rgba(255, 68, 68, 0.8);
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 50px rgba(255, 0, 0, 0.9), 0 0 25px rgba(255, 68, 68, 1), 0 0 10px rgba(255, 255, 255, 0.5);
+    filter: brightness(1.4);
+  }
+}
+
+@keyframes critical-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+@keyframes questionReveal {
+  0%   { opacity: 0; transform: translateY(15px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* =========================================================
+ANSWERS - Single Column Stack with LARGER TEXT
+========================================================= */
+.qd-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+}
+
+.qd-answer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  min-height: 70px;
+  padding: 12px 16px;
+  font-size: clamp(18px, 5vw, 26px) !important;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.3;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 2px solid rgba(0, 255, 255, 0.5);
+  box-shadow: 0 0 18px rgba(0, 255, 255, 0.3);
+  transition: all 0.25s ease;
+  animation: answerPop 0.5s ease both;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  text-shadow: 0 0 8px rgba(0,255,255,0.8), 0 0 16px rgba(0,255,255,0.5);
+  hyphens: auto;
+}
+
+/* Dynamic font sizing for long answers */
+.qd-answer[data-length="long"] {
+  font-size: clamp(15px, 4vw, 20px) !important;
+  line-height: 1.25;
+}
+
+.qd-answer[data-length="very-long"] {
+  font-size: clamp(13px, 3.5vw, 18px) !important;
+  line-height: 1.2;
+}
+
+.qd-answer:nth-child(1) { animation-delay: 0.05s; }
+.qd-answer:nth-child(2) { animation-delay: 0.1s; }
+.qd-answer:nth-child(3) { animation-delay: 0.15s; }
+.qd-answer:nth-child(4) { animation-delay: 0.2s; }
+
+@keyframes answerPop {
+  0%   { opacity: 0; transform: translateX(-10px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.qd-answer:active {
+  transform: scale(0.97);
+  border-color: rgba(138, 43, 226, 0.9);
+  box-shadow: 0 0 25px rgba(138, 43, 226, 0.6);
+}
+
+.qd-answer.correct {
+  background: rgba(0, 255, 150, 0.3);
+  border-color: #00ffcc;
+  box-shadow: 0 0 25px rgba(0,255,200,0.7);
+  text-shadow: 0 0 8px #00ffcc, 0 0 16px #00ffcc;
+}
+
+.qd-answer.incorrect {
+  opacity: 0.5;
+  border-color: rgba(255,0,0,0.6);
+  background: rgba(255, 0, 0, 0.15);
+}
+
+/* =========================================================
+LANDSCAPE MODE - Grid Layout for Answers
+Keeps vertical stack but answers go side-by-side in 2 columns
+========================================================= */
+@media (orientation: landscape) {
+  #quiz-root, .qd-root {
+    padding-top: 0 !important;
+    align-items: center;
+  }
+
+  #quizFrame {
+    max-width: 50vw;
+    max-height: 92vh;
+    flex-direction: column; /* Keep vertical stack */
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .qd-top {
+    width: 100%;
+    gap: 0;
+  }
+
+  .qd-image {
+    max-height: 35vh;
+  }
+
+  #questionLabel {
+    width: 100%;
+    font-size: clamp(16px, 2.5vw, 22px);
+    padding: 12px 16px;
+  }
+
+  /* Answers in 2-column grid */
+  .qd-answers {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .qd-answer {
+    min-height: 80px;
+    font-size: clamp(18px, 2.5vw, 24px) !important;
+    padding: 14px 18px;
+  }
+
+  .qd-answer[data-length="long"] {
+    font-size: clamp(16px, 2.2vw, 20px) !important;
+  }
+
+  .qd-answer[data-length="very-long"] {
+    font-size: clamp(14px, 2vw, 18px) !important;
+  }
+
+  #brandingLabel {
+    width: 100%;
+    text-align: center;
+  }
+}
+/* =========================================================
+VERY SMALL SCREENS
+========================================================= */
+@media (max-width: 360px) {
+  #questionLabel {
+    font-size: clamp(18px, 5vw, 24px);
+    padding: 10px 14px;
+  }
+
+  .qd-answer {
+    min-height: 60px;
+    font-size: clamp(16px, 5vw, 22px) !important;
+    padding: 10px 14px;
+  }
+
+  .qd-answer[data-length="long"] {
+    font-size: clamp(14px, 4vw, 18px) !important;
+  }
+
+  .qd-answer[data-length="very-long"] {
+    font-size: clamp(12px, 3.5vw, 16px) !important;
+  }
+}
+/* Live OBS overlays are rendered by overlay_theme.js. Hide the legacy quiz frame
+   so its dark panel cannot appear behind or above the shared overlay card. */
+body.live-overlay > .qd-root {
+  display: none !important;
+}

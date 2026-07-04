@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Timer Display</title>
+  <meta content="width=device-width, initial-scale=1" name="viewport"/>
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"/>
+  <link href="/core/quiz/css/overlay_theme.css?v=20260623-timer-stable" rel="stylesheet"/>
+  <script>
+    window.CLIENT_TYPE = "timer_display";
+    const params = new URLSearchParams(window.location.search);
+    window.ROOM_ID = params.get("room") || "default";
+    window.IS_OBS = params.get("obs") === "true";
+  </script>
+  <script src="/static/js/quizmaster_url_config.js?v=20260623-timer-stable"></script>
+</head>
+<body class="obs-browser obs-canvas timer-overlay">
+<script src="/core/quiz/js/overlay_theme.js?v=20260623-timer-stable"></script>
+<script src="/bootstrap.js?v=20260623-timer-stable"></script>
+<script>
+(function(){
+  async function start(){
+    let theme = await window.OverlayTheme.loadTheme();
+    const mount = document.body;
+    let timer = { remaining: 0, total: 30 };
+    let lastLiveTimerEventAt = 0;
+    let localCountdownInterval = null;
+
+    const render = () => window.OverlayTheme.renderTimer(mount, theme, timer);
+
+    const unwrap = (payload) => Array.isArray(payload) ? payload[0] : payload;
+    const num = (value, fallback = 0) => Number(value) || fallback;
+
+    function stopLocalCountdown(){
+      if (localCountdownInterval) clearInterval(localCountdownInterval);
+      localCountdownInterval = null;
+    }
+
+    function startLocalCountdown(total, startedAtSeconds){
+      stopLocalCountdown();
+      if (!startedAtSeconds || !total) return;
+      localCountdownInterval = setInterval(() => {
+        // Only use local derived countdown when live websocket ticks have gone quiet.
+        if (Date.now() - lastLiveTimerEventAt < 2500) return;
+        const remaining = Math.max(0, Math.ceil(total - ((Date.now() / 1000) - startedAtSeconds)));
+        timer = { remaining, total };
+        render();
+        if (remaining <= 0) stopLocalCountdown();
+      }, 500);
+    }
+
+    function applyStarted(payload, source = 'live'){
+      const data = unwrap(payload);
+      const total = num(data?.total ?? data?.duration ?? data?.remaining ?? data, 30);
+      timer = { remaining: total, total };
+      if (source === 'live') lastLiveTimerEventAt = Date.now();
+      render();
+    }
+
+    function applyTick(payload){
+      const data = unwrap(payload);
+      const remaining = num(data?.remaining ?? data?.time_remaining ?? data?.seconds_left ?? data, 0);
+      const total = num(data?.total ?? data?.duration ?? timer.total, timer.total || 30);
+      lastLiveTimerEventAt = Date.now();
+      timer = { remaining: Math.max(0, remaining), total };
+      render();
+      if (timer.remaining <= 0) stopLocalCountdown();
+    }
+
+    function applyExpired(){
+      lastLiveTimerEventAt = Date.now();
+      stopLocalCountdown();
+      timer = { remaining: 0, total: timer.total || 30 };
+      render();
+    }
+
+    async function recoverFromSnapshot(reason){
+      // Recovery only: never let snapshot overwrite an actively ticking websocket timer.
+      if (Date.now() - lastLiveTimerEventAt < 2500) return;
+      try {
+        const response = await fetch(`/api/snapshot?ts=${Date.now()}&source=timer_display&reason=${encodeURIComponent(reason || 'recover')}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        const snap = data.snapshot || data;
+        const t = snap.timer;
+        if (!t || typeof t !== 'object') return;
+        const total = num(t.total ?? t.duration, timer.total || 30);
+        if (t.running && t.started_at) {
+          const remaining = Math.max(0, Math.ceil(total - ((Date.now() / 1000) - Number(t.started_at))));
+          timer = { remaining, total };
+          render();
+          startLocalCountdown(total, Number(t.started_at));
+        } else if (t.running === false && Number(t.remaining) === 0) {
+          timer = { remaining: 0, total };
+          render();
+          stopLocalCountdown();
+        }
+      } catch (_) {}
+    }
+
+    render();
+    // Recovery after initial load/reconnect only. Do not poll every second and fight live ticks.
+    setTimeout(() => recoverFromSnapshot('startup'), 500);
+    setInterval(() => recoverFromSnapshot('quiet_recovery'), 5000);
+
+    window.QuizBootstrap?.ready?.().then(({services}) => {
+      const client = services?.bridgeClient;
+      if (!client?.on) return;
+      window.httpBridgeClient = client;
+      window.OverlayTheme.onThemeUpdate(client, (next) => { theme = window.OverlayTheme.normTheme(next.theme || next); render(); });
+      client.on('signal:timer_started', (d) => applyStarted(d));
+      client.on('timer_started', (d) => applyStarted(d));
+      client.on('signal:timer_tick', applyTick);
+      client.on('timer_tick', applyTick);
+      client.on('signal:timer_expired', applyExpired);
+      client.on('timer_expired', applyExpired);
+      client.on('ready', () => recoverFromSnapshot('ready'));
+      client.on('ws_open', () => recoverFromSnapshot('ws_open'));
+      client.on('ws_reconnect', () => recoverFromSnapshot('ws_reconnect'));
+    }).catch(err => console.error('[TimerDisplay] Bootstrap error:', err));
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+</script>
+</body>
+</html>
