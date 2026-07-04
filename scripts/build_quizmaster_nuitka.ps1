@@ -196,6 +196,13 @@ $nuitkaArgs = @(
     # Nuitka resolves --include-package by import name, so it must match the
     # package directory casing or it fails with "failed to locate package".
     "--include-package=TikTokLive",
+    # Keep TikTokLive's betterproto schema as bytecode instead of compiling it.
+    # TikTokLive.proto.tiktok_proto is a single ~79k-line generated module; the
+    # C backend either dies (MSVC "C1002: out of heap") or grinds for an hour
+    # (clang), which is what made the build hang at "99%". This mirrors how
+    # Nuitka auto-demotes google.protobuf *_pb2 files: bytecode mode still
+    # includes the module (imported fine at runtime) but never C-compiles it.
+    "--noinclude-custom-mode=TikTokLive.proto:bytecode",
     "--include-package=keyring",
     "--include-module=core.resources.web_assets_bundle",
     "--include-module=core.services.subscription_gate",
