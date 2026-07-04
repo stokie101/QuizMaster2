@@ -540,6 +540,7 @@ class AuthService:
             self.current_session = None
             self.current_profile = None
             self.clear_saved_session()
+            self._clear_tiktok_identity()
             try:
                 from core.services.account_service import AccountService
                 AccountService().update_local_state({
@@ -553,6 +554,44 @@ class AuthService:
                 })
             except Exception as exc:
                 logger.warning("Could not update local account state on logout: %s", exc)
+
+    def _clear_tiktok_identity(self) -> None:
+        """Best-effort wipe of all TikTok connection/identity state on logout.
+
+        logout() previously cleared only the app-account session, leaving the
+        TikTok connection, remembered handle, and cached account stats behind,
+        so the next account inherited the previous user's TikTok. Each step is
+        isolated so a failure in one never blocks logout or the others.
+        """
+        # Tear down any active TikTok Live connection.
+        try:
+            from core.tiktok.tiktok_live_manager import TikTokLiveManager
+            manager = TikTokLiveManager.get_instance()
+            if manager is not None and manager.is_connected():
+                manager.disconnect()
+        except Exception as exc:
+            logger.warning("Could not disconnect TikTok live manager on logout: %s", exc)
+
+        # Forget the remembered handle and stop auto-reconnecting on next launch.
+        try:
+            from config.config_manager import ConfigManager
+            config = ConfigManager.get_instance()
+            config.set("TikTokLive", "last_username", "")
+            config.set("TikTokLive", "auto_connect", "false")
+        except Exception as exc:
+            logger.warning("Could not reset TikTok config on logout: %s", exc)
+
+        # Drop cached authenticated-account snapshots and their on-disk cache.
+        try:
+            from core.tiktok.account_stats import TikTokAccountStatsService
+            stats = TikTokAccountStatsService.get_instance()
+            try:
+                stats.stop()
+            except Exception:
+                pass
+            stats.clear()
+        except Exception as exc:
+            logger.warning("Could not clear TikTok account stats on logout: %s", exc)
 
     def save_session(self, session: AuthSession, profile: Optional[QuizMasterProfile] = None) -> None:
         data = {"session": asdict(session), "profile": profile.to_dict() if profile else None}

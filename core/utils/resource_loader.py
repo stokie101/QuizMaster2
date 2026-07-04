@@ -43,10 +43,24 @@ class ResourceLoader:
                 return cls._base_path
 
             try:
-                # PyInstaller frozen app
-                if getattr(sys, 'frozen', False):
-                    cls._base_path = Path(sys._MEIPASS)
-                    logger.debug(f"Frozen mode base: {cls._base_path}")
+                meipass = getattr(sys, '_MEIPASS', None)
+                if meipass:
+                    # PyInstaller frozen app
+                    cls._base_path = Path(meipass)
+                    logger.debug(f"PyInstaller frozen mode base: {cls._base_path}")
+                elif "__compiled__" in globals():
+                    # Nuitka-compiled app. Nuitka has no sys._MEIPASS; the
+                    # compiled modules live inside the app tree (standalone) or
+                    # the onefile extraction dir, and __file__ points into it, so
+                    # walking up from this module reaches the app root where the
+                    # --include-data-* files land.
+                    cls._base_path = Path(__file__).resolve().parent.parent.parent
+                    logger.debug(f"Nuitka frozen mode base: {cls._base_path}")
+                elif getattr(sys, 'frozen', False):
+                    # Some other freezer that set sys.frozen but no _MEIPASS:
+                    # fall back to the directory holding the executable.
+                    cls._base_path = Path(sys.executable).resolve().parent
+                    logger.debug(f"Frozen mode base (executable dir): {cls._base_path}")
                 else:
                     # Development mode
                     cls._base_path = Path(__file__).parent.parent.parent

@@ -225,6 +225,42 @@ Two habits that keep it clean:
 - It does not make the app uncrackable — nothing does. A skilled reverser can
   still patch a binary. That's why paid features must stay **server-enforced**.
 - Only the listed module is native; the rest of the app is still bundled
-  bytecode. Upgrade path if you need more: compile everything with **Nuitka**.
+  bytecode. Upgrade path if you need more: compile everything with **Nuitka**
+  (see below).
 - The build must run on **Windows** (locally or in CI). It can't be verified in
   a Linux-only environment.
+
+---
+
+## Alternative: the fully-compiled Nuitka build
+
+The PyInstaller pipeline above ships the app as bytecode (decompilable) with
+only the gate as native code. The **Nuitka** build compiles **all** of the
+Python — the entire app, gate included — to machine code, so a copy of the
+install directory exposes no readable app source at all. It's a **parallel**
+pipeline: the PyInstaller path is untouched and stays the default.
+
+- **Local:** `scripts\build_quizmaster_nuitka.ps1`
+  - default: a single `dist\QuizMaster.exe` (`--onefile`), windowed release.
+  - `-Standalone`: a one-folder app under `dist\QuizMaster.dist\` instead. Use
+    this if the one-file build ever fails to launch — QtWebEngine one-file
+    extracts to a temp dir on every start, which is the one fragile part of the
+    Nuitka path. The folder build is still fully compiled/hardened.
+  - `-Console`: keep a console window with live tracebacks for debugging.
+- **CI:** `.github/workflows/build-windows-nuitka.yml` runs on `windows-latest`,
+  compiles the exe, and uploads it as an artifact you can download and launch on
+  a real Windows machine. Trigger it manually from the Actions tab (choose
+  `onefile` or `standalone`). Nuitka builds are slow — 20-40 min is normal.
+
+Notes specific to the Nuitka build:
+
+- **No Cython step.** Nuitka compiles `subscription_gate.py` to machine code
+  itself, so the separate `.pyd` is redundant; the script removes any stale
+  `.pyd` first so the `.py` gets compiled in.
+- **Frontend stays embedded.** As with PyInstaller, the script regenerates
+  `core/resources/web_assets_bundle.py` first so HTML/CSS/JS is embedded, not
+  shipped as loose files. Do **not** add `--include-data-dir` for the frontend
+  folders — that would undo the anti-copy win.
+- **Nuitka has no `sys._MEIPASS`.** `core/utils/resource_loader.py` detects the
+  Nuitka case (`"__compiled__" in globals()`) and resolves resources from the
+  app tree instead, so the same code works under both packagers.
