@@ -66,7 +66,9 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
 
     @app.get("/core/assets/{asset_path:path}", include_in_schema=False)
     async def core_assets(asset_path: str):
-        return _asset_or_404(f"core/assets/{asset_path}", "application/octet-stream")
+        # media_type=None -> use the bundle's stored MIME (e.g. image/png for the
+        # logo) instead of forcing application/octet-stream.
+        return _asset_or_404(f"core/assets/{asset_path}", None)
 
     @app.get("/static/{asset_path:path}", include_in_schema=False)
     async def static_assets(asset_path: str):

@@ -218,32 +218,43 @@ class HTTPBridgeServer:
         self.trusted_origins = _parse_trusted_origins()
 
         from fastapi.staticfiles import StaticFiles
+        from core.utils.embedded_web_assets import has_embedded_assets
 
         self.BASE_DIR = Path(__file__).resolve().parent
 
-        # Mount standard static folders
-        static_dirs = ["static", "themes", "overlays"]
-        for folder in static_dirs:
-            path = self.BASE_DIR / folder
-            if path.exists():
-                self.app.mount(f"/{folder}", StaticFiles(directory=str(path)), name=folder)
-                logger.info(f"📁 Mounted static folder: /{folder} → {path}")
-            else:
-                logger.warning(f"⚠️ Static folder '{folder}' not found at {path}")
-
-        # Core assets — works in source and PyInstaller builds.
-        core_assets_path = get_resource_path("core/assets")
-
-        if core_assets_path.exists():
-            self.app.mount(
-                "/core/assets",
-                StaticFiles(directory=str(core_assets_path)),
-                name="core_assets",
-            )
-            logger.info("📁 Mounted Core Assets: /core/assets → %s", core_assets_path)
-
+        # In release/frozen builds the frontend ships inside the generated asset
+        # bundle and is served by the embedded routes in embedded_frontend_routes.
+        # Do NOT also mount the on-disk folders then: under Nuitka, package dirs
+        # such as core/assets and core/server/overlays get materialized in the
+        # dist without their image/asset files, so a disk StaticFiles mount would
+        # exist, shadow the embedded /core/assets route, and 404 the logo. Only
+        # mount from disk in development, where no bundle exists.
+        if has_embedded_assets():
+            logger.info("📦 Serving frontend assets from the embedded bundle (no on-disk mounts)")
         else:
-            logger.warning("⚠️ Core Assets not found at %s", core_assets_path)
+            # Mount standard static folders (development / source runs).
+            static_dirs = ["static", "themes", "overlays"]
+            for folder in static_dirs:
+                path = self.BASE_DIR / folder
+                if path.exists():
+                    self.app.mount(f"/{folder}", StaticFiles(directory=str(path)), name=folder)
+                    logger.info(f"📁 Mounted static folder: /{folder} → {path}")
+                else:
+                    logger.warning(f"⚠️ Static folder '{folder}' not found at {path}")
+
+            # Core assets — works in source and PyInstaller builds.
+            core_assets_path = get_resource_path("core/assets")
+
+            if core_assets_path.exists():
+                self.app.mount(
+                    "/core/assets",
+                    StaticFiles(directory=str(core_assets_path)),
+                    name="core_assets",
+                )
+                logger.info("📁 Mounted Core Assets: /core/assets → %s", core_assets_path)
+
+            else:
+                logger.warning("⚠️ Core Assets not found at %s", core_assets_path)
 
 
         @self.app.get("/api/quizmaster/url-config")

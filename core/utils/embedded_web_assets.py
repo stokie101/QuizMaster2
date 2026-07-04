@@ -25,6 +25,15 @@ def _normalize(relative_path: str) -> str:
     return str(relative_path or "").replace("\\", "/").lstrip("/")
 
 
+def has_embedded_assets() -> bool:
+    """True when a generated asset bundle is present (i.e. a frozen/release build).
+
+    Used to decide whether the bridge should serve frontend assets from memory
+    instead of mounting on-disk folders (which don't ship in release builds).
+    """
+    return bool(_EMBEDDED_ASSETS)
+
+
 def has_embedded_asset(relative_path: str) -> bool:
     return _normalize(relative_path) in _EMBEDDED_ASSETS
 
