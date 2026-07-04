@@ -44,7 +44,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-$RequiredPythonVersion = "3.14"
+$RequiredPythonVersion = "3.13"
 
 function Resolve-BuildPython {
     $candidates = @(
