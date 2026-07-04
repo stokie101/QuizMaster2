@@ -59,7 +59,11 @@
   function applyOfficial(payload) {
     const stats = getStats(payload);
     const available = !!(stats && (stats.available || stats.username));
-    state.linked = !!(available || payload?.connected || payload?.configured);
+    // "linked" means an actual TikTok account is logged in -- a real account
+    // snapshot (available/username) or a live broker token (connected). Do NOT
+    // treat `configured` as linked: it is true whenever the broker URL is set
+    // (always, in production), which would hide the "Log in" button forever.
+    state.linked = !!(available || payload?.connected);
     if (available) {
       state.username = String(stats.username || "").replace(/^@/, "");
       state.displayName = stats.display_name || stats.nickname || state.username;

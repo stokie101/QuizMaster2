@@ -75,12 +75,11 @@
           </div>
         </div>
         <div class="qm-tiktok-sidebar-actions">
-          <button class="qm-tiktok-sidebar-btn primary" id="tiktokSidebarConnectBtn">Login</button>
-          <button class="qm-tiktok-sidebar-btn" id="tiktokSidebarRefreshBtn">Refresh</button>
+          <button class="qm-tiktok-sidebar-btn primary" id="tiktokSidebarActionBtn">Log in</button>
         </div>
       `;
-      document.getElementById("tiktokSidebarConnectBtn")?.addEventListener("click", openLogin);
-      document.getElementById("tiktokSidebarRefreshBtn")?.addEventListener("click", refreshNow);
+      // Logged out: the single action button starts the official TikTok login.
+      document.getElementById("tiktokSidebarActionBtn")?.addEventListener("click", openLogin);
       return;
     }
 
@@ -104,10 +103,11 @@
         </div>
       </div>
       <div class="qm-tiktok-sidebar-followers"><span>Followers</span><span>${formatNumber(current.followers)}</span></div>
-      <div class="qm-tiktok-sidebar-actions"><button class="qm-tiktok-sidebar-btn" id="tiktokSidebarRefreshBtn">Refresh</button></div>
+      <div class="qm-tiktok-sidebar-actions"><button class="qm-tiktok-sidebar-btn" id="tiktokSidebarActionBtn">Refresh</button></div>
       <div class="qm-tiktok-sidebar-muted">${escapeHtml(current.liveConnected ? "Live chat is ready." : "Live chat will connect automatically when your TikTok LIVE is available.")}</div>
     `;
-    document.getElementById("tiktokSidebarRefreshBtn")?.addEventListener("click", refreshNow);
+    // Logged in: the same action button becomes Refresh.
+    document.getElementById("tiktokSidebarActionBtn")?.addEventListener("click", refreshNow);
   }
 
   async function openLogin() {
