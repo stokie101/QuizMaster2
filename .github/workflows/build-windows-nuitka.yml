@@ -1,0 +1,62 @@
+name: Build Windows (Nuitka)
+
+# Parallel to build-windows.yml (PyInstaller). Compiles QuizMaster with Nuitka
+# into a fully machine-code exe and uploads it as an artifact so the compiled
+# build can be downloaded and tested on a real Windows machine -- the only place
+# a Qt/QtWebEngine launch can actually be verified.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pack_mode:
+        description: "Packaging mode"
+        type: choice
+        default: onefile
+        options:
+          - onefile      # single QuizMaster.exe
+          - standalone   # one-folder app (fallback if one-file WebEngine fails)
+  push:
+    branches:
+      - "claude/**"
+    paths:
+      - "scripts/build_quizmaster_nuitka.ps1"
+      - ".github/workflows/build-windows-nuitka.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Resolve packaging mode
+        shell: pwsh
+        run: |
+          $mode = "${{ github.event.inputs.pack_mode }}"
+          if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "onefile" }
+          "PACK_MODE=$mode" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Packaging mode: $mode"
+
+      - name: Build QuizMaster (Nuitka)
+        shell: pwsh
+        run: |
+          $buildArgs = @()
+          if ($env:PACK_MODE -eq "standalone") { $buildArgs += "-Standalone" }
+          ./scripts/build_quizmaster_nuitka.ps1 @buildArgs
+
+      - name: Upload compiled exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuizMaster-nuitka-${{ env.PACK_MODE }}
+          path: |
+            dist/QuizMaster.exe
+            dist/QuizMaster.dist
+          if-no-files-found: error
+          retention-days: 14

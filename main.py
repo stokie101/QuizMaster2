@@ -22,6 +22,13 @@ os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
 os.environ["QT_ANGLE_PLATFORM"] = "d3d11"
 os.environ["QT_OPENGL"] = "angle"
 
+# Nuitka-compiled builds have no PyInstaller runtime hook to flip on release
+# mode, so default a compiled binary to release logging. Inert under PyInstaller
+# and in development (where "__compiled__" is not defined).
+if "__compiled__" in globals():
+    os.environ.setdefault("QUIZMASTER_MODE", "release")
+    os.environ.setdefault("QUIZMASTER_AUTH_MODE", "account")
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 ROOT_PATH = PROJECT_ROOT if (PROJECT_ROOT / "core").exists() else PROJECT_ROOT.parent
 if str(ROOT_PATH) not in sys.path:
