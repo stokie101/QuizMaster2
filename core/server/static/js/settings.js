@@ -14,7 +14,7 @@ const SETTINGS_PAGES = {
       ])),
       card('💡', 'Helpful links', 'Quick access to QuizMaster resources while setup documentation is expanded.', actionRow([
         button('Open quizmaster.liveforge.online', () => openExternal(localBaseUrl())),
-        button('Open widgets.quizmaster.liveforge.online', () => openExternal(localBaseUrl()), 'secondary'),
+        button('Open widgets.liveforge.online', () => openExternal(localBaseUrl()), 'secondary'),
       ])),
     ])
   },
@@ -58,7 +58,7 @@ const SETTINGS_PAGES = {
     description: 'Product information, support links, credits, and release notes.',
     render: () => grid([
       card('⚡', 'QuizMaster', 'TikTok LIVE quiz control with OBS-ready overlays, chat answers, and live leaderboard workflows.', `<div class="info-list"><div class="info-row"><strong>App version</strong><span>Local build</span></div><div class="info-row"><strong>Build channel</strong><span>Desktop</span></div><div class="info-row"><strong>Copyright</strong><span>© 2026 QuizMaster</span></div></div>`, 'wide'),
-      card('🌐', 'Links', 'Open official QuizMaster web destinations and support resources.', actionRow([button('Open quizmaster.liveforge.online', () => openExternal(localBaseUrl())), button('Open widgets.quizmaster.liveforge.online', () => openExternal(localBaseUrl()), 'secondary'), button('Open support page', () => placeholder('Open support page'), 'secondary')]), 'wide'),
+      card('🌐', 'Links', 'Open official QuizMaster web destinations and support resources.', actionRow([button('Open quizmaster.liveforge.online', () => openExternal(localBaseUrl())), button('Open widgets.liveforge.online', () => openExternal(localBaseUrl()), 'secondary'), button('Open support page', () => placeholder('Open support page'), 'secondary')]), 'wide'),
       card('📝', 'Changelog', 'Release notes will appear here when update delivery is connected.', `<span class="status-badge future">Placeholder</span><p class="muted" style="margin-top:1rem">No changelog is bundled in this local settings view yet.</p>`),
       card('🙏', 'Credits', 'QuizMaster includes open-source libraries and platform integrations credited in bundled license files.', `<span class="status-badge online">Third-party credits available</span><p class="muted" style="margin-top:1rem">See the included third-party license documentation for detailed attribution.</p>`),
     ])

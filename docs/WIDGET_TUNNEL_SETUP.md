@@ -1,77 +1,63 @@
-# QuizMaster widget hosting (Cloudflare Tunnel)
+# QuizMaster widget hosting
 
 QuizMaster generates official OBS browser-source URLs like:
 
 ```
-https://widgets.quizmaster.liveforge.online/u/<public_widget_id>/leaderboard?session=<id>
-https://widgets.quizmaster.liveforge.online/u/<public_widget_id>/quiz_display?session=<id>
-https://widgets.quizmaster.liveforge.online/u/<public_widget_id>/timer_display?session=<id>
-https://widgets.quizmaster.liveforge.online/u/<public_widget_id>/quiz_controls?session=<id>
+https://widgets.liveforge.online/u/<public_widget_id>/leaderboard?session=<id>
+https://widgets.liveforge.online/u/<public_widget_id>/quiz_display?session=<id>
+https://widgets.liveforge.online/u/<public_widget_id>/timer_display?session=<id>
+https://widgets.liveforge.online/u/<public_widget_id>/quiz_controls?session=<id>
 ```
 
-These are served **by the running desktop app itself** (the FastAPI bridge
-server on `http://127.0.0.1:5555`). The public host reaches that local server
-through a Cloudflare Tunnel — the exact model the LiveForge app uses for
-`widgets.liveforge.online`. There is no separate widget backend, static site,
-Worker, or database to deploy.
+For QuizMaster accounts the `<public_widget_id>` is the `qmw_...` id returned by
+`https://liveforge.online/api/account/me`.
 
-## Why a tunnel is required
+## How it works
 
-- The bridge server binds to `127.0.0.1:5555` only; it is not reachable from
-  the public internet on its own.
-- `/u/<public_widget_id>/...` routes, `?session=` validation, owner/control
-  tokens, and the Socket.IO live-state rooms already exist in the app
-  (`core/server/public_widget_routes.py`, `core/server/widget_sessions.py`).
-- The only missing piece is a public hostname that forwards to `127.0.0.1:5555`.
+- `widgets.liveforge.online` is the shared LiveForge widget host. It is already
+  live: a Cloudflare Tunnel forwards it to the running desktop app's FastAPI
+  bridge server on `http://127.0.0.1:5555`. (Hitting it with no `?session=`
+  returns the desktop's own `{"detail":"A widget session ID is required"}` --
+  proof the host reaches a real server.)
+- The desktop serves the `/u/<public_widget_id>/...` routes itself
+  (`core/server/public_widget_routes.py`) and pushes live state over Socket.IO.
+- Everything is scoped by `public_widget_id` -- **no `?session=` is required**.
+  The path id is validated against the **signed-in user**, not against a host or
+  a prefix (`core/server/session_identity.py:validate_profile_or_warn`), so a
+  `qmw_` id resolves on this host whenever the QuizMaster desktop app is the one
+  running behind the tunnel -- no separate subdomain or second tunnel is needed.
+- Widgets join the account room `profile:<public_widget_id>`, and the quiz engine
+  mirrors every live signal into that room (`bridge_server._active_widget_rooms`),
+  which is what makes the hosted widgets update live.
 
-## One-time Cloudflare setup
+## Requirements for widgets to display
 
-The host lives in the existing `liveforge.online` zone (already in Cloudflare),
-so no new domain registration is needed.
-
-1. **Create a named tunnel** on the machine that runs QuizMaster:
-   ```bash
-   cloudflared tunnel login
-   cloudflared tunnel create quizmaster-widgets
-   ```
-2. **Route the public hostname to the tunnel** (adds the DNS CNAME
-   `widgets.quizmaster.liveforge.online -> <tunnel-id>.cfargotunnel.com`):
-   ```bash
-   cloudflared tunnel route dns quizmaster-widgets widgets.quizmaster.liveforge.online
-   ```
-3. **Point the tunnel ingress at the local bridge server** (`~/.cloudflared/config.yml`):
-   ```yaml
-   tunnel: quizmaster-widgets
-   credentials-file: /path/to/<tunnel-id>.json
-   ingress:
-     - hostname: widgets.quizmaster.liveforge.online
-       service: http://127.0.0.1:5555
-     - service: http_status:404
-   ```
-4. **Run the connector** alongside the desktop app:
-   ```bash
-   cloudflared tunnel run quizmaster-widgets
-   ```
+1. The QuizMaster desktop app is running and signed in (so it has a `qmw_`
+   `public_widget_id` from `/api/account/me`).
+2. The `widgets.liveforge.online` Cloudflare Tunnel forwards to that machine's
+   `http://127.0.0.1:5555`.
+3. Load the clean app-generated URL as an OBS browser source -- no `?session=`
+   and no `?obs=true`:
+   `https://widgets.liveforge.online/u/<qmw_id>/quiz_display`
 
 ## Verifying
 
-With the app running and the tunnel up:
+With the app running behind the tunnel, the clean per-user URL returns the
+widget page (HTML 200), and OBS renders live state as the quiz runs:
 
 ```bash
-# No session -> the desktop server's own 400 (proves the tunnel reaches it):
-curl -i https://widgets.quizmaster.liveforge.online/u/<public_widget_id>/leaderboard
-# -> {"detail":"A widget session ID is required"}
+curl -i https://widgets.liveforge.online/u/<qmw_id>/quiz_display   # -> 200, widget HTML
 ```
 
-Then load a full app-generated URL (with `?session=`) as an OBS browser source.
+## Overriding the host
 
-## Notes / limits
+The host is overridable without a rebuild via the `HOSTED_WIDGETS_BASE_URL`
+(or `WIDGETS_BASE_URL`) environment variable. The packaged default lives in
+`config/production.env` and `core/server/url_config.py`.
 
-- A single named tunnel forwards to **one** machine. The `public_widget_id` in
-  the path scopes to whichever signed-in user is running that instance — the
-  same single-origin model LiveForge uses today. Serving many users' machines
-  under one shared host would require a central relay (Worker + Durable Object),
-  which neither app currently implements.
-- The host is overridable without a rebuild via the `HOSTED_WIDGETS_BASE_URL`
-  (or `WIDGETS_BASE_URL`) environment variable; the packaged default lives in
-  `config/production.env` and `core/server/url_config.py`.
+## Note / limit
+
+A single named tunnel forwards to **one** machine, so the `public_widget_id` in
+the path scopes to whichever signed-in user is running that instance. Serving
+many users' machines under one shared host would require a central relay
+(Worker + Durable Object), which is not implemented today.

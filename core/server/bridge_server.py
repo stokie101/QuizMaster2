@@ -592,10 +592,28 @@ class HTTPBridgeServer:
         async def _async_emit():
             try:
                 await self.socketio.emit("signal", evt, to=self.LOCKED_ROOM)
+                # Public per-user widgets join account rooms (profile:<public_widget_id>)
+                # instead of the internal default room, so mirror every live signal
+                # into each connected widget room. This is what makes the hosted
+                # /u/<public_widget_id>/... widgets update live -- no session id needed.
+                for room in self._active_widget_rooms():
+                    await self.socketio.emit("signal", evt, room=room)
             except Exception as e:
                 logger.error(f"❌ async emit failed: {e}")
 
         self._submit_emit_coro(_async_emit())
+
+    def _active_widget_rooms(self) -> set:
+        """Distinct non-default rooms that currently have a connected widget."""
+        try:
+            with self._clients_lock:
+                return {
+                    info.get('room')
+                    for info in self.connected_clients.values()
+                    if info.get('room') and info.get('room') != self.LOCKED_ROOM
+                }
+        except Exception:
+            return set()
 
     def emit_to_room(self, signal_name: str, data: Any, room: str):
         async def _async_emit():
