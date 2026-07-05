@@ -37,20 +37,24 @@ def _write_state_rejection(request: Request, reason: str) -> None:
         logger.debug("Could not write state rejection log", exc_info=True)
 
 
-def _session_id(request: Request) -> str:
-    value = str(request.query_params.get("session") or "").strip()
-    if not value:
-        reason = "A widget session ID is required"
-        if request.url.path.endswith("/api/state") or request.url.path.endswith("/api/state/full"):
-            _write_state_rejection(request, reason)
-        raise HTTPException(status_code=400, detail=reason)
-    return value
+def _optional_session_id(request: Request) -> str:
+    """Read an optional ``?session=`` id. Per-user widgets are scoped by
+    ``public_widget_id`` alone, so a session id is never required."""
+    return str(request.query_params.get("session") or "").strip()
 
 
 def _public_session_dependency(feature: str):
     def validate(request: Request, public_widget_id: str):
+        # Everything is linked by the account's public_widget_id. The desktop
+        # serves a single signed-in user, so the id in the path fully identifies
+        # the owner and their live state -- no session id needed. If a caller
+        # still supplies one, honour it for stricter isolation.
+        _validate_public_widget_id(public_widget_id)
+        session_id = _optional_session_id(request)
+        if not session_id:
+            return None
         try:
-            return WidgetSessionStore.get_instance().resolve_public(feature, public_widget_id, _session_id(request))
+            return WidgetSessionStore.get_instance().resolve_public(feature, public_widget_id, session_id)
         except SessionAuthorizationError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
     return validate
@@ -87,22 +91,31 @@ def _public_projection(feature: str) -> dict:
     return sanitize(dict(state or {}))
 
 
-def _persist_control_snapshot(feature: str, session, request: Request) -> None:
+def _persist_control_snapshot(feature: str, public_widget_id: str, request: Request, session=None) -> None:
     snapshot = _public_projection(feature)
-    updated = WidgetSessionStore.get_instance().update_snapshot(
-        feature, session.session_id, session.owner_user_id, snapshot,
-        public_snapshot=snapshot, event_type=request.url.path.rsplit("/", 1)[-1] or "command",
-    )
+    version = None
+    if session is not None:
+        try:
+            updated = WidgetSessionStore.get_instance().update_snapshot(
+                feature, session.session_id, session.owner_user_id, snapshot,
+                public_snapshot=snapshot, event_type=request.url.path.rsplit("/", 1)[-1] or "command",
+            )
+            version = updated.version
+        except Exception as exc:
+            logger.warning("scoped_widget_snapshot_persist_failed feature=%s error=%s", feature, exc)
     try:
         from core.services.service_locator import ServiceLocator
         locator = ServiceLocator.get_instance()
         server = locator.get_service("Server") if hasattr(locator, "get_service") else locator.get("Server")
         if server and hasattr(server, "emit_to_room"):
-            event_name = "snapshot"
-            payload = {"snapshot": snapshot, "version": updated.version, "session_id": updated.session_id}
-            server.emit_to_room(event_name, payload, updated.room)
+            payload = {"snapshot": snapshot}
+            if version is not None:
+                payload["version"] = version
+            # The account room is keyed by public_widget_id -- the same room the
+            # display widgets join, so no session id is needed to reach them.
+            server.emit_to_room("snapshot", payload, f"profile:{public_widget_id}")
     except Exception as exc:
-        logger.warning("scoped_widget_emit_failed feature=%s session_id=%s error=%s", feature, session.session_id, exc)
+        logger.warning("scoped_widget_emit_failed feature=%s error=%s", feature, exc)
 
 
 def _control_session_dependency(feature: str):
@@ -112,20 +125,27 @@ def _control_session_dependency(feature: str):
         x_quizmaster_control_token: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ):
-        session_id = _session_id(request)
+        # Controls still require owner authorization, but not a session id.
+        _validate_public_widget_id(public_widget_id)
         store = WidgetSessionStore.get_instance()
+        session_id = _optional_session_id(request)
+        session = None
         try:
-            session = store.resolve_public(feature, public_widget_id, session_id)
-            if x_quizmaster_control_token:
-                authorized = store.authorize_control(feature, session_id, x_quizmaster_control_token)
+            if session_id:
+                session = store.resolve_public(feature, public_widget_id, session_id)
+                if x_quizmaster_control_token:
+                    store.authorize_control(feature, session_id, x_quizmaster_control_token)
+                else:
+                    from core.server.widget_session_routes import _authenticated_owner
+                    owner_user_id, _ = _authenticated_owner(authorization)
+                    store.authorize_owner(feature, session.session_id, owner_user_id)
             else:
-                # Desktop requests may use the normal access token in a header. The
-                # token is never accepted in a URL and ownership is derived server-side.
+                # Sessionless control: authorize the signed-in desktop owner via
+                # the access token header. The token is never accepted in a URL.
                 from core.server.widget_session_routes import _authenticated_owner
-                owner_user_id, _ = _authenticated_owner(authorization)
-                authorized = store.authorize_owner(feature, session.session_id, owner_user_id)
-            yield authorized
-            _persist_control_snapshot(feature, authorized, request)
+                _authenticated_owner(authorization)
+            yield session
+            _persist_control_snapshot(feature, public_widget_id, request, session)
         except HTTPException:
             raise
         except SessionAuthorizationError as exc:

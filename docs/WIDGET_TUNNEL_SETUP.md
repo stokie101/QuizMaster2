@@ -20,12 +20,15 @@ For QuizMaster accounts the `<public_widget_id>` is the `qmw_...` id returned by
   returns the desktop's own `{"detail":"A widget session ID is required"}` --
   proof the host reaches a real server.)
 - The desktop serves the `/u/<public_widget_id>/...` routes itself
-  (`core/server/public_widget_routes.py`) and pushes live state over Socket.IO
-  rooms (`core/server/widget_sessions.py`).
-- The path id is validated against the **signed-in user**, not against a host or
-  a prefix (`core/server/session_identity.py:validate_profile_or_warn`). So a
+  (`core/server/public_widget_routes.py`) and pushes live state over Socket.IO.
+- Everything is scoped by `public_widget_id` -- **no `?session=` is required**.
+  The path id is validated against the **signed-in user**, not against a host or
+  a prefix (`core/server/session_identity.py:validate_profile_or_warn`), so a
   `qmw_` id resolves on this host whenever the QuizMaster desktop app is the one
   running behind the tunnel -- no separate subdomain or second tunnel is needed.
+- Widgets join the account room `profile:<public_widget_id>`, and the quiz engine
+  mirrors every live signal into that room (`bridge_server._active_widget_rooms`),
+  which is what makes the hosted widgets update live.
 
 ## Requirements for widgets to display
 
@@ -33,21 +36,18 @@ For QuizMaster accounts the `<public_widget_id>` is the `qmw_...` id returned by
    `public_widget_id` from `/api/account/me`).
 2. The `widgets.liveforge.online` Cloudflare Tunnel forwards to that machine's
    `http://127.0.0.1:5555`.
-3. The URL loaded in OBS is a full app-generated URL that includes `?session=`
-   (the app adds this automatically via `build_quiz_urls`). A bare
-   `/u/<id>/quiz_display` with no session returns the 400 above by design.
+3. Load the clean app-generated URL as an OBS browser source -- no `?session=`
+   and no `?obs=true`:
+   `https://widgets.liveforge.online/u/<qmw_id>/quiz_display`
 
 ## Verifying
 
-With the app running behind the tunnel:
+With the app running behind the tunnel, the clean per-user URL returns the
+widget page (HTML 200), and OBS renders live state as the quiz runs:
 
 ```bash
-# No session -> the desktop server's own 400 (proves the tunnel reaches it):
-curl -i https://widgets.liveforge.online/u/<qmw_id>/quiz_display
-# -> {"detail":"A widget session ID is required"}
+curl -i https://widgets.liveforge.online/u/<qmw_id>/quiz_display   # -> 200, widget HTML
 ```
-
-Then load a full app-generated URL (with `?session=`) as an OBS browser source.
 
 ## Overriding the host
 
