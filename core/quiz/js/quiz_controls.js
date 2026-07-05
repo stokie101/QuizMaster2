@@ -455,7 +455,8 @@ class QuizControls {
 
     console.log('[QuizControls] Initializing...');
     const params = new URLSearchParams(window.location.search);
-    this.isObsDock = window.QUIZ_CONTROLS_IS_OBS_DOCK === true || params.get('obs') === 'true';
+    const isScopedWidget = /^\/u\/[^/]+\//.test(window.location.pathname);
+    this.isObsDock = window.QUIZ_CONTROLS_IS_OBS_DOCK === true || params.get('obs') === 'true' || isScopedWidget;
     window.QUIZ_CONTROLS_IS_OBS_DOCK = this.isObsDock;
     window.CLIENT_TYPE = this.isObsDock ? 'quiz_controls' : 'quiz_settings';
     document.body.classList.toggle('obs-dock', this.isObsDock);

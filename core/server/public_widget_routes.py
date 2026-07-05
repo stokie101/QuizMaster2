@@ -125,7 +125,10 @@ def _control_session_dependency(feature: str):
         x_quizmaster_control_token: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ):
-        # Controls still require owner authorization, but not a session id.
+        # The public_widget_id in the path is the credential: this confirms it
+        # matches the signed-in QuizMaster user on this desktop (and the tunnel
+        # only reaches that machine), which authorizes the owner. No session id
+        # or separate token is required for controls.
         _validate_public_widget_id(public_widget_id)
         store = WidgetSessionStore.get_instance()
         session_id = _optional_session_id(request)
@@ -140,10 +143,13 @@ def _control_session_dependency(feature: str):
                     owner_user_id, _ = _authenticated_owner(authorization)
                     store.authorize_owner(feature, session.session_id, owner_user_id)
             else:
-                # Sessionless control: authorize the signed-in desktop owner via
-                # the access token header. The token is never accepted in a URL.
-                from core.server.widget_session_routes import _authenticated_owner
-                _authenticated_owner(authorization)
+                # Sessionless control: the validated public_widget_id above is
+                # the credential, so the matching signed-in owner is already
+                # authorized. An access token is still honoured if one is sent,
+                # but it is never required and never accepted in a URL.
+                if authorization:
+                    from core.server.widget_session_routes import _authenticated_owner
+                    _authenticated_owner(authorization)
             yield session
             _persist_control_snapshot(feature, public_widget_id, request, session)
         except HTTPException:

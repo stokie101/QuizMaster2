@@ -9,7 +9,10 @@
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
-      window.QUIZ_CONTROLS_IS_OBS_DOCK = params.get('obs') === 'true';
+      // The hosted per-user URL (/u/<public_widget_id>/quiz_controls) IS the OBS
+      // control dock: show Run Controls by default, settings behind the cog.
+      const isScopedWidget = /^\/u\/[^/]+\//.test(window.location.pathname);
+      window.QUIZ_CONTROLS_IS_OBS_DOCK = params.get('obs') === 'true' || isScopedWidget;
       window.CLIENT_TYPE = window.QUIZ_CONTROLS_IS_OBS_DOCK ? 'quiz_controls' : 'quiz_settings';
     })();
   </script>
