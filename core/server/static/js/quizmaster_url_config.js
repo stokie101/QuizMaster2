@@ -86,6 +86,7 @@
 
     function appendQuery(url, query) {
         Object.entries(query || {}).forEach(([key, value]) => {
+            if (key === 'obs' && String(value).toLowerCase() === 'true') return;
             if (value !== undefined && value !== null) url.searchParams.set(key, value);
         });
         return url.toString();
