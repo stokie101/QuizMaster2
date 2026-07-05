@@ -306,28 +306,34 @@ class AudioHandler(QObject):
                     return
                 started["done"] = True
 
+                if sound_type != "timer":
+                    player.play()
+                    logging.debug(f"Playback started for {sound_type}")
+                    return
+
                 # For timer sounds the track ending must land exactly at zero,
                 # regardless of timer length.
-                if sound_type == "timer":
-                    timer_ms = int(timer_length) * 1000
-                    if timer_ms <= total_duration_ms:
-                        # Play the final `timer` seconds so the end hits zero.
-                        player.setPosition(max(total_duration_ms - timer_ms, 0))
-                        player.play()
-                    else:
-                        # Timer longer than the track: wait, then play the full
-                        # track from 0 so its ending still lands at zero.
-                        player.setPosition(0)
-                        delay_ms = timer_ms - total_duration_ms
+                timer_ms = int(timer_length) * 1000
+                if timer_ms > total_duration_ms:
+                    # Timer longer than the track: wait, then play the full track
+                    # from 0 so its ending still lands at zero.
+                    delay_ms = timer_ms - total_duration_ms
 
-                        def _start_if_current(p=player):
-                            if self.players.get("timer") is p:
-                                p.play()
+                    def _start_if_current(p=player):
+                        if self.players.get("timer") is p:
+                            p.setPosition(0)
+                            p.play()
 
-                        QTimer.singleShot(delay_ms, _start_if_current)
+                    QTimer.singleShot(delay_ms, _start_if_current)
                 else:
+                    # Play the final `timer` seconds so the end hits zero. Start
+                    # playback first, THEN seek: QMediaPlayer reliably honours a
+                    # seek on an active pipeline, whereas a seek issued while
+                    # stopped is dropped by some backends (leaving the sound
+                    # silent). The brief start-of-track blip is negligible.
                     player.play()
-                logging.debug(f"Playback started for {sound_type}")
+                    player.setPosition(max(total_duration_ms - timer_ms, 0))
+                logging.debug(f"Timer playback started ({timer_ms}ms of {total_duration_ms}ms)")
 
             def on_media_status_loaded(status):
                 if status == QMediaPlayer.MediaStatus.LoadedMedia:
