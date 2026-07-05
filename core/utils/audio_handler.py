@@ -1,9 +1,10 @@
 import logging
 import os
 import sys
+import tempfile
 import time
 
-from PySide6.QtCore import Signal, QObject, QUrl, QMutexLocker, QMutex, QCoreApplication, Qt
+from PySide6.QtCore import Signal, QObject, QUrl, QMutexLocker, QMutex, QCoreApplication, Qt, QTimer
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from config.config_manager import ConfigManager
@@ -11,12 +12,59 @@ from core.utils.audio_video_manager import AudioVideoManager
 
 LOGGER = logging.getLogger("AudioHandler")
 
+# Config key overrides where the SOUND section key differs from the audio
+# category name (the UI/config uses "effects_volume", not "sound_effects_volume").
+_VOLUME_KEYS = {"sound_effects": "effects_volume"}
+
+
+def _volume_key(sound_type: str) -> str:
+    return _VOLUME_KEYS.get(sound_type, f"{sound_type}_volume")
+
 
 def resource_path(relative_path: str) -> str:
     """Get absolute path to resource (works for dev and PyInstaller exe)."""
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
+
+def resolve_sound_file(category: str, file_name: str) -> str | None:
+    """Return a playable local file path for a bundled sound.
+
+    Works in dev and in the packaged (Nuitka/PyInstaller) app. Release builds
+    ship no loose asset files -- the sounds are embedded in
+    core.resources.web_assets_bundle -- so when the loose file is absent we
+    extract the embedded bytes to a cached temp file that QMediaPlayer can play.
+    """
+    if not file_name:
+        return None
+    rel = f"core/assets/sounds/{category}/{file_name}"
+
+    # 1) Loose file via the app resource loader (dev + some frozen layouts).
+    try:
+        from core.utils.resource_loader import get_resource_path
+        candidate = str(get_resource_path(rel))
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    except Exception as exc:
+        LOGGER.debug(f"resource_loader lookup failed for {rel}: {exc}")
+
+    # 2) Embedded asset bundle (anti-copy release builds).
+    try:
+        from core.utils.embedded_web_assets import get_embedded_asset_bytes
+        data = get_embedded_asset_bytes(rel)
+        if data:
+            cache_dir = os.path.join(tempfile.gettempdir(), "quizmaster_sounds")
+            os.makedirs(cache_dir, exist_ok=True)
+            cached = os.path.join(cache_dir, f"{category}__{file_name}")
+            if not os.path.isfile(cached) or os.path.getsize(cached) != len(data):
+                with open(cached, "wb") as handle:
+                    handle.write(data)
+            return cached
+    except Exception as exc:
+        LOGGER.debug(f"embedded asset lookup failed for {rel}: {exc}")
+
+    return None
 
 
 class AudioHandler(QObject):
@@ -139,11 +187,9 @@ class AudioHandler(QObject):
             logging.error(f"Invalid sound type: {sound_type}")
             return
 
-        file_path = os.path.join(self.audio_video_manager.AUDIO_CATEGORIES[sound_type], file_name)
-        file_path = resource_path(file_path)
-
-        if not os.path.isfile(file_path):
-            logging.error(f"Audio file not found: {file_path}")
+        file_path = resolve_sound_file(sound_type, file_name)
+        if not file_path:
+            logging.error(f"Audio file not found for {sound_type}: {file_name}")
             return
 
         # ✅ Use local format check instead of AudioVideoManager
@@ -153,7 +199,7 @@ class AudioHandler(QObject):
 
         try:
             enabled = self.config_manager.getboolean(f"SOUND", f"enable_{sound_type}_sound", fallback=True)
-            volume = self.config_manager.getint(f"SOUND", f"{sound_type}_volume", fallback=50)
+            volume = self.config_manager.getint(f"SOUND", _volume_key(sound_type), fallback=50)
         except Exception:
             enabled = True
             volume = 50
@@ -207,14 +253,9 @@ class AudioHandler(QObject):
         from the end minus `duration_seconds`.
         """
         try:
-            sound_dir = self.audio_video_manager.AUDIO_CATEGORIES.get("timer")
-            if not sound_dir:
-                logging.error("Invalid sound type: timer (directory missing)")
-                return
-
-            file_path = resource_path(os.path.join(sound_dir, file_name))
-            if not os.path.isfile(file_path):
-                logging.error(f"Timer audio file not found: {file_path}")
+            file_path = resolve_sound_file("timer", file_name)
+            if not file_path:
+                logging.error(f"Timer audio file not found: {file_name}")
                 return
 
             if not self.is_supported_format(file_path):
@@ -252,20 +293,45 @@ class AudioHandler(QObject):
             self.audio_outputs[sound_type] = audio_output
             player.setSource(QUrl.fromLocalFile(file_path))
 
+            started = {"done": False}
+
+            def begin_playback():
+                # Start playback once, only after a valid duration is known so the
+                # timer seek can be computed. Fires from LoadedMedia or, if the
+                # duration is not ready then, from durationChanged.
+                if started["done"]:
+                    return
+                total_duration_ms = player.duration()
+                if total_duration_ms <= 0:
+                    return
+                started["done"] = True
+
+                # For timer sounds the track ending must land exactly at zero,
+                # regardless of timer length.
+                if sound_type == "timer":
+                    timer_ms = int(timer_length) * 1000
+                    if timer_ms <= total_duration_ms:
+                        # Play the final `timer` seconds so the end hits zero.
+                        player.setPosition(max(total_duration_ms - timer_ms, 0))
+                        player.play()
+                    else:
+                        # Timer longer than the track: wait, then play the full
+                        # track from 0 so its ending still lands at zero.
+                        player.setPosition(0)
+                        delay_ms = timer_ms - total_duration_ms
+
+                        def _start_if_current(p=player):
+                            if self.players.get("timer") is p:
+                                p.play()
+
+                        QTimer.singleShot(delay_ms, _start_if_current)
+                else:
+                    player.play()
+                logging.debug(f"Playback started for {sound_type}")
+
             def on_media_status_loaded(status):
                 if status == QMediaPlayer.MediaStatus.LoadedMedia:
-                    total_duration_ms = player.duration()
-                    if total_duration_ms <= 0:
-                        logging.error(f"Invalid audio duration: {total_duration_ms}")
-                        return
-
-                    # For timer sounds, start from the end based on exact timer length (X seconds)
-                    if sound_type == "timer":
-                        start_position = max(total_duration_ms - (int(timer_length) * 1000), 0)
-                        player.setPosition(start_position)
-
-                    player.play()
-                    logging.debug(f"Playback started for {sound_type}")
+                    begin_playback()
 
             def on_media_status_cleanup(status, key=sound_type, p=player, o=audio_output):
                 if status in (QMediaPlayer.MediaStatus.EndOfMedia, QMediaPlayer.MediaStatus.InvalidMedia):
@@ -287,6 +353,8 @@ class AudioHandler(QObject):
 
             player.mediaStatusChanged.connect(on_media_status_loaded)
             player.mediaStatusChanged.connect(on_media_status_cleanup)
+            # Fallback: some backends report duration after LoadedMedia.
+            player.durationChanged.connect(lambda _dur: begin_playback())
 
             # Error handling
             player.errorOccurred.connect(
@@ -328,17 +396,11 @@ class AudioHandler(QObject):
                 logging.warning("❌ Effects sound disabled in config")
                 return
 
-            # Get directory for sound type
-            sound_dir = self.audio_video_manager.AUDIO_CATEGORIES.get(sound_type)
-            if not sound_dir:
-                logging.error(f"Invalid sound type: {sound_type}")
-                return
-
-            file_path = resource_path(os.path.join(sound_dir, file_name))
+            file_path = resolve_sound_file(sound_type, file_name)
             logging.info(f"🔊 Attempting to play: {file_path}")
 
-            if not os.path.isfile(file_path):
-                logging.error(f"❌ File not found: {file_path}")
+            if not file_path:
+                logging.error(f"❌ File not found for {sound_type}: {file_name}")
                 return
 
             # ✅ Validate format using local method
@@ -346,8 +408,8 @@ class AudioHandler(QObject):
                 logging.error(f"❌ Unsupported format: {file_path}")
                 return
 
-            # Get volume
-            volume = self.config_manager.getint("SOUND", f"{sound_type}_volume", fallback=70)
+            # Get volume (effects use the SOUND.effects_volume key)
+            volume = self.config_manager.getint("SOUND", _volume_key(sound_type), fallback=70)
             logging.debug(f"Volume: {volume}")
 
             # Create player

@@ -336,6 +336,12 @@ class QuizManager(QObject):
                 self._question_in_progress = False
                 self._active_timer_kind = "answer"
                 self.events.emit("state_changed", self.state.state.value)
+        # Play the answer chime once at the reveal moment (respects Sound Settings).
+        if self.audio:
+            try:
+                self.audio.play_answer_chime()
+            except Exception as e:
+                self.logger.warning(f"Failed to play answer chime: {e}")
         self.events.show_answers(answer_map)
 
     def _on_votes_updated(self, question_dict):
