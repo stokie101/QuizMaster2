@@ -27,10 +27,16 @@ ASSET_ROOTS = [
     ROOT / "core" / "quiz" / "js",
 ]
 
+# NOTE: audio (.mp3/.wav/.ogg) is deliberately NOT embedded here. The desktop
+# app plays sounds via QMediaPlayer from files, not over HTTP to the browser
+# sources. Embedding a multi-MB .wav as a base64 string in this generated module
+# produces a huge string literal that breaks the Nuitka/MSVC compile of the
+# bundle, which then makes every embedded widget HTML "not found". Sounds are
+# shipped as loose data files instead (see build_quizmaster_nuitka.ps1).
 INCLUDE_SUFFIXES = {
     ".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
-    ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".wav", ".ogg",
+    ".woff", ".woff2", ".ttf", ".otf",
 }
 
 

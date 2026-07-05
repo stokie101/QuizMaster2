@@ -5,15 +5,16 @@ from pathlib import Path
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "dist/QuizMaster")
 
+# NOTE: core/assets is intentionally NOT listed -- media assets (images, sounds)
+# ship as loose data files on purpose. Frontend SOURCE under it is still caught
+# by the BAD_SUFFIXES scan below.
 BAD_DIRS = [
-    "core/assets",
     "core/server/static",
     "core/server/themes",
     "core/server/overlays",
     "core/quiz/html",
     "core/quiz/css",
     "core/quiz/js",
-    "_internal/core/assets",
     "_internal/core/server/static",
     "_internal/core/server/themes",
     "_internal/core/server/overlays",
