@@ -39,6 +39,28 @@ else:
 logger = logging.getLogger(__name__)
 
 
+def _serve_quiz_html(filename: str):
+    """Serve a core/quiz/html page from disk (dev) or the embedded bundle.
+
+    Release builds (Nuitka/PyInstaller) ship no loose frontend files -- the HTML
+    lives in core.resources.web_assets_bundle. Reading only from disk made the
+    scoped /u/<public_widget_id>/{quiz_controls,leaderboard,...} pages 404 with
+    "<name>.html not found" in the packaged app.
+    """
+    from fastapi import HTTPException
+    file_path = os.path.join(BASE_PATH, "core", "quiz", "html", filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/html")
+    try:
+        from core.utils.embedded_web_assets import embedded_asset_response
+        response = embedded_asset_response(f"core/quiz/html/{filename}", "text/html")
+        if response is not None:
+            return response
+    except Exception as exc:
+        logger.warning("embedded html lookup failed for %s: %s", filename, exc)
+    raise HTTPException(status_code=404, detail=f"{filename} not found")
+
+
 def _write_settings_save_error(payload, exc):
     """Persist full diagnostics for Quiz Settings save failures."""
     try:
@@ -965,18 +987,12 @@ def register_quiz_routes(app: FastAPI, server):
     @app.get("/quiz_display")
     async def quiz_display_page():
         """Serve quiz display page"""
-        file_path = os.path.join(BASE_PATH, "core", "quiz", "html", "display.html")
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="display.html not found")
-        return FileResponse(file_path, media_type="text/html")
+        return _serve_quiz_html("display.html")
 
     @app.get("/quiz_controls")
     async def quiz_controls_page():
         """Serve quiz controls page"""
-        file_path = os.path.join(BASE_PATH, "core", "quiz", "html", "controls.html")
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="controls.html not found")
-        return FileResponse(file_path, media_type="text/html")
+        return _serve_quiz_html("controls.html")
 
     @app.get("/leaderboard")
     async def leaderboard_page():
@@ -988,18 +1004,12 @@ def register_quiz_routes(app: FastAPI, server):
         (/u/<public_widget_id>/leaderboard) and showed the studio instead of the
         overlay. The studio is reachable directly at /overlay-studio.
         """
-        file_path = os.path.join(BASE_PATH, "core", "quiz", "html", "leaderboard.html")
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="leaderboard.html not found")
-        return FileResponse(file_path, media_type="text/html")
+        return _serve_quiz_html("leaderboard.html")
 
     @app.get("/timer_display")
     async def timer_display_page():
         """Serve standalone timer browser-source page"""
-        file_path = os.path.join(BASE_PATH, "core", "quiz", "html", "timer_display.html")
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="timer_display.html not found")
-        return FileResponse(file_path, media_type="text/html")
+        return _serve_quiz_html("timer_display.html")
 
     quiz_routes = [route for route in app.routes[route_start:] if isinstance(route, APIRoute)]
     add_public_widget_aliases(
