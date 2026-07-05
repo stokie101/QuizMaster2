@@ -21,6 +21,32 @@ def _volume_key(sound_type: str) -> str:
     return _VOLUME_KEYS.get(sound_type, f"{sound_type}_volume")
 
 
+def linear_volume(volume_0_100) -> float:
+    """Convert a 0-100 Sound Settings volume to a QAudioOutput level [0,1].
+
+    Applies perceptual (logarithmic) scaling so moving the slider changes the
+    loudness the way a user expects, instead of the near-flat top end of a raw
+    linear mapping.
+    """
+    try:
+        pct = max(0, min(100, int(volume_0_100)))
+    except Exception:
+        pct = 50
+    perceptual = pct / 100.0
+    for module_name in ("QtAudio", "QAudio"):
+        try:
+            mod = __import__("PySide6.QtMultimedia", fromlist=[module_name])
+            api = getattr(mod, module_name)
+            return float(api.convertVolume(
+                perceptual,
+                api.VolumeScale.LogarithmicVolumeScale,
+                api.VolumeScale.LinearVolumeScale,
+            ))
+        except Exception:
+            continue
+    return perceptual
+
+
 def probe_audio_duration_ms(file_path: str):
     """Best-effort synchronous audio length in milliseconds.
 
@@ -248,9 +274,21 @@ class AudioHandler(QObject):
                 logging.warning("No file name provided for timer audio.")
                 return
 
-            if not self.get_enable_timer_sound():
-                logging.debug("Timer sound disabled in config")
+            enabled = self.get_enable_timer_sound()
+            volume = 0
+            try:
+                volume = self.config_manager.getint("SOUND", "timer_volume", fallback=50)
+            except Exception:
+                volume = 50
+            logging.info(
+                "⏱️ Timer sound requested: file=%s duration=%ss enable_timer_sound=%s timer_volume=%s",
+                file_name, duration_seconds, enabled, volume,
+            )
+            if not enabled:
+                logging.warning("Timer sound is OFF (SOUND.enable_timer_sound=false) -- enable it in Sound Settings")
                 return
+            if volume <= 0:
+                logging.warning("Timer volume is 0 (SOUND.timer_volume) -- raise it in Sound Settings")
 
             duration_seconds = max(0, int(duration_seconds))
 
@@ -274,8 +312,12 @@ class AudioHandler(QObject):
         try:
             file_path = resolve_sound_file("timer", file_name)
             if not file_path:
-                logging.error(f"Timer audio file not found: {file_name}")
+                logging.error(
+                    "❌ Timer audio file not found: %s (not on disk and not in the embedded "
+                    "asset bundle -- check the sound is packaged)", file_name,
+                )
                 return
+            logging.info("🔊 Timer sound resolved to: %s", file_path)
 
             if not self.is_supported_format(file_path):
                 logging.error(f"Unsupported audio format: {file_path}")
@@ -304,8 +346,7 @@ class AudioHandler(QObject):
             audio_output = QAudioOutput()
             player.setAudioOutput(audio_output)
 
-            volume_normalized = max(0.0, min(1.0, volume / 100.0))
-            audio_output.setVolume(volume_normalized)
+            audio_output.setVolume(linear_volume(volume))
 
             # Store references so we can pause/resume/stop
             self.players[sound_type] = player
@@ -313,6 +354,11 @@ class AudioHandler(QObject):
             player.setSource(QUrl.fromLocalFile(file_path))
 
             def on_media_status_cleanup(status, key=sound_type, p=player, o=audio_output):
+                if status == QMediaPlayer.MediaStatus.InvalidMedia:
+                    logging.error(
+                        "❌ %s media is INVALID (could not be decoded/played) -- this is why it is silent",
+                        key,
+                    )
                 if status in (QMediaPlayer.MediaStatus.EndOfMedia, QMediaPlayer.MediaStatus.InvalidMedia):
                     logging.debug(f"Audio finished/invalid for key: {key}")
                     try:
@@ -445,7 +491,7 @@ class AudioHandler(QObject):
             player = QMediaPlayer()
             output = QAudioOutput()
             player.setAudioOutput(output)
-            output.setVolume(max(0.0, min(1.0, volume / 100.0)))
+            output.setVolume(linear_volume(volume))
 
             player.setSource(QUrl.fromLocalFile(file_path))
 
