@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 
 from core.utils.embedded_web_assets import embedded_asset_response
@@ -31,13 +31,6 @@ def _core_assets_dir() -> Path:
 
 
 def _loose_asset_file(relative_path: str) -> Path | None:
-    """Resolve a /core/assets/... request to a loose on-disk file, if present.
-
-    Branding images (logo, icon.ico) are shipped as loose, swappable files, so a
-    replaced file in the install folder overrides the embedded copy. Returns None
-    when there is no such file on disk (then the embedded bundle is used). Guards
-    against path traversal outside the assets directory.
-    """
     if not relative_path.startswith("core/assets/"):
         return None
     root = _core_assets_dir()
@@ -68,6 +61,13 @@ EXACT_FRONTEND_ROUTES: dict[str, tuple[str, str]] = {
     "/timer_display": ("core/quiz/html/timer_display.html", "text/html"),
 }
 
+SCOPED_WIDGET_ROUTES: dict[str, tuple[str, str]] = {
+    "/quiz_display": ("core/quiz/html/display.html", "text/html"),
+    "/leaderboard": ("core/quiz/html/leaderboard.html", "text/html"),
+    "/timer_display": ("core/quiz/html/timer_display.html", "text/html"),
+    "/quiz_controls": ("core/quiz/html/controls.html", "text/html"),
+}
+
 
 def _drop_frontend_routes(app: FastAPI) -> None:
     paths_to_drop = set(EXACT_FRONTEND_ROUTES) | {"/leaderboard"}
@@ -77,7 +77,7 @@ def _drop_frontend_routes(app: FastAPI) -> None:
     ]
 
 
-def _asset_or_404(relative_path: str, media_type: str):
+def _asset_or_404(relative_path: str, media_type: str | None):
     response = embedded_asset_response(relative_path, media_type)
     if response is None:
         raise HTTPException(status_code=404, detail=f"Embedded asset not found: {relative_path}")
@@ -94,20 +94,21 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
         app.add_api_route(route_path, handler, methods=["GET"], include_in_schema=False)
 
     @app.get("/leaderboard", include_in_schema=False)
-    async def leaderboard_page(request: Request):
-        if request.query_params.get("obs") != "true":
-            return RedirectResponse(url="/overlay-studio", status_code=307)
+    async def leaderboard_page():
         return _asset_or_404("core/quiz/html/leaderboard.html", "text/html")
+
+    for route_path, (asset_path, media_type) in SCOPED_WIDGET_ROUTES.items():
+        async def scoped_handler(asset_path=asset_path, media_type=media_type):
+            return _asset_or_404(asset_path, media_type)
+
+        app.add_api_route(f"/u/{{profile_id}}{route_path}", scoped_handler, methods=["GET"], include_in_schema=False)
 
     @app.get("/core/assets/{asset_path:path}", include_in_schema=False)
     async def core_assets(asset_path: str):
         relative = f"core/assets/{asset_path}"
-        # Disk-first: a loose (swappable) branding file overrides the embedded
-        # copy. FileResponse sets the MIME from the filename (image/png, .ico...).
         loose = _loose_asset_file(relative)
         if loose is not None:
             return FileResponse(str(loose))
-        # media_type=None -> use the bundle's stored MIME (e.g. image/png).
         return _asset_or_404(relative, None)
 
     @app.get("/static/{asset_path:path}", include_in_schema=False)
