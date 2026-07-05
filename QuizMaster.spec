@@ -14,7 +14,12 @@ DEBUG_CONSOLE = os.environ.get('QUIZMASTER_DEBUG_CONSOLE') == '1'
 
 pyside_datas, pyside_binaries, pyside_hiddenimports = collect_all('PySide6')
 
-DATA_DIRS = []
+# Sounds ship as loose data files (they are excluded from web_assets_bundle to
+# avoid a multi-MB base64 string breaking the frozen build). resolve_sound_file
+# loads them from here; the desktop app plays them via QMediaPlayer.
+DATA_DIRS = [
+    ('core/assets/sounds', 'core/assets/sounds'),
+]
 
 DATA_FILES = [
     ('config/production.env', 'config'),

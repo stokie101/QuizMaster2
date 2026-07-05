@@ -180,9 +180,9 @@ $nuitkaArgs = @(
     "--product-name=QuizMaster",
     "--product-version=1.0.0",
     "--file-version=1.0.0",
-    # Runtime data. Frontend HTML/CSS/JS/sounds are deliberately NOT included as
-    # loose files -- they are embedded via web_assets_bundle + the Qt resource
-    # module (anti-copy). Do NOT add --include-data-dir for those folders.
+    # Runtime data. Frontend HTML/CSS/JS is deliberately NOT included as loose
+    # files -- it is embedded via web_assets_bundle + the Qt resource module
+    # (anti-copy). Do NOT add --include-data-dir for those folders.
     "--include-data-files=config/production.env=config/production.env",
     "--include-data-files=License.txt=License.txt",
     "--include-data-files=THIRD_PARTY_LICENSES.txt=THIRD_PARTY_LICENSES.txt",
@@ -192,6 +192,11 @@ $nuitkaArgs = @(
     # replaced file is picked up and a deleted one still renders. This is the one
     # asset folder we intentionally keep "on the outside".
     "--include-data-dir=core/assets/images=core/assets/images",
+    # Sounds ship as loose data files (not in web_assets_bundle): the desktop app
+    # plays them via QMediaPlayer from disk, and embedding a multi-MB .wav as a
+    # base64 string broke the Nuitka compile of the asset bundle. resolve_sound_file
+    # loads them from here.
+    "--include-data-dir=core/assets/sounds=core/assets/sounds",
     # ServiceRegistry imports services by dotted string, so force whole packages.
     "--include-package=core",
     "--include-package=config",
