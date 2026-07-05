@@ -89,8 +89,13 @@ def public_widget_path(path: str, user_id: str | None = None) -> str:
 
 
 def _append_query(url: str, query: dict[str, object] | None = None) -> str:
-    if query:
-        return f"{url}?{urlencode(query)}"
+    filtered = {
+        key: value
+        for key, value in (query or {}).items()
+        if not (key == "obs" and str(value).lower() == "true")
+    }
+    if filtered:
+        return f"{url}?{urlencode(filtered)}"
     return url
 
 
