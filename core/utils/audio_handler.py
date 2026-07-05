@@ -414,6 +414,18 @@ class AudioHandler(QObject):
             # issued while stopped is dropped by some backends.
             player.play()
 
+            # Diagnostic: report the actual player state shortly after play() so a
+            # silent-but-"playing" vs never-started case is visible in the log.
+            def _log_timer_state(p=player):
+                if self.players.get("timer") is p:
+                    logging.info(
+                        "⏱️ Timer player check: state=%s position=%sms duration=%sms seekable=%s mediaStatus=%s error=%s",
+                        p.playbackState(), p.position(), p.duration(), p.isSeekable(),
+                        p.mediaStatus(), p.errorString() or "none",
+                    )
+
+            QTimer.singleShot(600, _log_timer_state)
+
             seeked = {"done": False}
 
             def _align_to_end():
