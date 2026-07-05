@@ -12,7 +12,8 @@
     window.CLIENT_TYPE = "leaderboard";
     const params = new URLSearchParams(window.location.search);
     window.ROOM_ID = params.get("room") || "default";
-    window.IS_OBS_OVERLAY = params.get("obs") === "true";
+    // The hosted per-user URL (/u/<public_widget_id>/leaderboard) is an OBS overlay.
+    window.IS_OBS_OVERLAY = params.get("obs") === "true" || /^\/u\/[^/]+\//.test(window.location.pathname);
   </script>
   <script src="/static/js/quizmaster_url_config.js?v=20260623-live-recover"></script>
   <script src="/core/quiz/js/overlay_theme.js?v=20260623-live-recover"></script>
