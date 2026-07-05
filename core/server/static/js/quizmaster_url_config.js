@@ -3,7 +3,7 @@
 
     const PUBLIC_URL_BLOCKLIST = new Set(['/obs/control']);
 
-    const HOSTED_WIDGETS_BASE_URL = 'https://widgets.quizmaster.online';
+    const HOSTED_WIDGETS_BASE_URL = 'https://widgets.liveforge.online';
     const WIDGETS_BASE_URL = HOSTED_WIDGETS_BASE_URL;
     const DEFAULTS = {
         WIDGETS_BASE_URL,
