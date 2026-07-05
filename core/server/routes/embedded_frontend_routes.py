@@ -58,6 +58,7 @@ EXACT_FRONTEND_ROUTES: dict[str, tuple[str, str]] = {
     "/core/quiz/html/leaderboard.html": ("core/quiz/html/leaderboard.html", "text/html"),
     "/quiz_display": ("core/quiz/html/display.html", "text/html"),
     "/quiz_controls": ("core/quiz/html/controls.html", "text/html"),
+    "/leaderboard": ("core/quiz/html/leaderboard.html", "text/html"),
     "/timer_display": ("core/quiz/html/timer_display.html", "text/html"),
 }
 
@@ -70,7 +71,19 @@ SCOPED_WIDGET_ROUTES: dict[str, tuple[str, str]] = {
 
 
 def _drop_frontend_routes(app: FastAPI) -> None:
-    paths_to_drop = set(EXACT_FRONTEND_ROUTES) | {"/leaderboard"}
+    """Remove earlier filesystem-backed frontend routes before adding embedded ones.
+
+    quiz_routes.py registers both plain routes (/quiz_display) and public-widget
+    aliases (/u/{public_widget_id}/quiz_display). If the aliases are not removed,
+    FastAPI matches those older disk-backed handlers before the embedded handlers
+    added below, so Nuitka release builds can still return "*.html not found" for
+    hosted/public widget URLs even though the asset is present in web_assets_bundle.
+    """
+    paths_to_drop = set(EXACT_FRONTEND_ROUTES)
+    for route_path in SCOPED_WIDGET_ROUTES:
+        paths_to_drop.add(f"/u/{{public_widget_id}}{route_path}")
+        paths_to_drop.add(f"/u/{{profile_id}}{route_path}")
+
     app.router.routes = [
         route for route in app.router.routes
         if not (isinstance(route, APIRoute) and getattr(route, "path", None) in paths_to_drop)
@@ -92,10 +105,6 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
             return _asset_or_404(asset_path, media_type)
 
         app.add_api_route(route_path, handler, methods=["GET"], include_in_schema=False)
-
-    @app.get("/leaderboard", include_in_schema=False)
-    async def leaderboard_page():
-        return _asset_or_404("core/quiz/html/leaderboard.html", "text/html")
 
     for route_path, (asset_path, media_type) in SCOPED_WIDGET_ROUTES.items():
         async def scoped_handler(asset_path=asset_path, media_type=media_type):
