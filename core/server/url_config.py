@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 # Private desktop bridge address. This is only for the embedded app UI/server.
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:5555").rstrip("/")
 
-# Official browser-source URLs use the deployed LiveForge widget host, scoped with
-# QuizMaster's own /u/<public_widget_id>/... profile path.
+# Official QuizMaster browser-source URLs use the QuizMaster widget host,
+# scoped with /u/<public_widget_id>/... profile paths.
 HOSTED_WIDGETS_BASE_URL = (
     os.getenv("HOSTED_WIDGETS_BASE_URL")
     or os.getenv("WIDGETS_BASE_URL")
-    or "https://widgets.liveforge.online"
+    or "https://widgets.quizmaster.online"
 ).rstrip("/")
 WIDGETS_BASE_URL = (os.getenv("WIDGETS_BASE_URL") or HOSTED_WIDGETS_BASE_URL).rstrip("/")
 PUBLIC_BASE_URL = WIDGETS_BASE_URL
