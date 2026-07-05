@@ -979,14 +979,15 @@ def register_quiz_routes(app: FastAPI, server):
         return FileResponse(file_path, media_type="text/html")
 
     @app.get("/leaderboard")
-    async def leaderboard_page(request: Request):
-        """Serve only the OBS leaderboard browser-source page at the stable URL."""
-        # The hosted per-user URL (/u/<public_widget_id>/leaderboard) is the
-        # official OBS browser source, so serve the overlay directly there. Only
-        # the bare internal /leaderboard falls back to the overlay studio.
-        is_scoped_widget = request.url.path.startswith("/u/")
-        if request.query_params.get("obs") != "true" and not is_scoped_widget:
-            return RedirectResponse(url="/overlay-studio", status_code=307)
+    async def leaderboard_page():
+        """Serve the OBS leaderboard browser-source page at the stable URL.
+
+        Always serves the overlay, consistent with quiz_display/quiz_controls/
+        timer_display. The leaderboard previously redirected bare /leaderboard to
+        the overlay studio, which also hijacked the official per-user URL
+        (/u/<public_widget_id>/leaderboard) and showed the studio instead of the
+        overlay. The studio is reachable directly at /overlay-studio.
+        """
         file_path = os.path.join(BASE_PATH, "core", "quiz", "html", "leaderboard.html")
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="leaderboard.html not found")
