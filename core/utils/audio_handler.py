@@ -21,6 +21,25 @@ def _volume_key(sound_type: str) -> str:
     return _VOLUME_KEYS.get(sound_type, f"{sound_type}_volume")
 
 
+def probe_audio_duration_ms(file_path: str):
+    """Best-effort synchronous audio length in milliseconds.
+
+    Reliable for the bundled .wav timer sound, so the timer alignment does not
+    have to wait on Qt load signals (which left the timer sound silent).
+    Returns None when the length cannot be determined without a decoder.
+    """
+    try:
+        if file_path and file_path.lower().endswith(".wav"):
+            import wave
+            with wave.open(file_path, "rb") as handle:
+                rate = handle.getframerate()
+                if rate:
+                    return int(handle.getnframes() * 1000 / rate)
+    except Exception as exc:
+        LOGGER.debug(f"wav duration probe failed for {file_path}: {exc}")
+    return None
+
+
 def resource_path(relative_path: str) -> str:
     """Get absolute path to resource (works for dev and PyInstaller exe)."""
     if hasattr(sys, "_MEIPASS"):
@@ -293,52 +312,6 @@ class AudioHandler(QObject):
             self.audio_outputs[sound_type] = audio_output
             player.setSource(QUrl.fromLocalFile(file_path))
 
-            started = {"done": False}
-
-            def begin_playback():
-                # Start playback once, only after a valid duration is known so the
-                # timer seek can be computed. Fires from LoadedMedia or, if the
-                # duration is not ready then, from durationChanged.
-                if started["done"]:
-                    return
-                total_duration_ms = player.duration()
-                if total_duration_ms <= 0:
-                    return
-                started["done"] = True
-
-                if sound_type != "timer":
-                    player.play()
-                    logging.debug(f"Playback started for {sound_type}")
-                    return
-
-                # For timer sounds the track ending must land exactly at zero,
-                # regardless of timer length.
-                timer_ms = int(timer_length) * 1000
-                if timer_ms > total_duration_ms:
-                    # Timer longer than the track: wait, then play the full track
-                    # from 0 so its ending still lands at zero.
-                    delay_ms = timer_ms - total_duration_ms
-
-                    def _start_if_current(p=player):
-                        if self.players.get("timer") is p:
-                            p.setPosition(0)
-                            p.play()
-
-                    QTimer.singleShot(delay_ms, _start_if_current)
-                else:
-                    # Play the final `timer` seconds so the end hits zero. Start
-                    # playback first, THEN seek: QMediaPlayer reliably honours a
-                    # seek on an active pipeline, whereas a seek issued while
-                    # stopped is dropped by some backends (leaving the sound
-                    # silent). The brief start-of-track blip is negligible.
-                    player.play()
-                    player.setPosition(max(total_duration_ms - timer_ms, 0))
-                logging.debug(f"Timer playback started ({timer_ms}ms of {total_duration_ms}ms)")
-
-            def on_media_status_loaded(status):
-                if status == QMediaPlayer.MediaStatus.LoadedMedia:
-                    begin_playback()
-
             def on_media_status_cleanup(status, key=sound_type, p=player, o=audio_output):
                 if status in (QMediaPlayer.MediaStatus.EndOfMedia, QMediaPlayer.MediaStatus.InvalidMedia):
                     logging.debug(f"Audio finished/invalid for key: {key}")
@@ -357,15 +330,65 @@ class AudioHandler(QObject):
                         pass
                     self.audio_finished.emit(str(key))
 
-            player.mediaStatusChanged.connect(on_media_status_loaded)
             player.mediaStatusChanged.connect(on_media_status_cleanup)
-            # Fallback: some backends report duration after LoadedMedia.
-            player.durationChanged.connect(lambda _dur: begin_playback())
-
-            # Error handling
             player.errorOccurred.connect(
                 lambda err, msg: logging.error(f"Playback error for {sound_type}: {err} - {msg}")
             )
+
+            if sound_type != "timer":
+                # Non-timer sounds play immediately (same path as the answer chime).
+                player.play()
+                logging.debug(f"Playback started for {sound_type}")
+                return
+
+            # Timer: the track ending must land exactly at zero. Probe the audio
+            # length synchronously (reliable for the bundled .wav) so the decision
+            # does not depend on Qt load signals -- waiting on those signals is why
+            # the timer sound was previously silent.
+            timer_ms = max(0, int(timer_length)) * 1000
+            audio_ms = probe_audio_duration_ms(file_path)
+
+            if audio_ms and timer_ms > audio_ms:
+                # Timer longer than the track: wait, then play the full track from
+                # 0 so its ending still lands at zero.
+                delay_ms = timer_ms - audio_ms
+
+                def _delayed_start(p=player):
+                    if self.players.get("timer") is p:
+                        p.setPosition(0)
+                        p.play()
+
+                QTimer.singleShot(delay_ms, _delayed_start)
+                logging.debug(f"Timer playback scheduled: wait {delay_ms}ms then full {audio_ms}ms track")
+                return
+
+            # Play immediately (guaranteed, exactly like the chime), then seek to
+            # the final `timer` seconds once the pipeline is seekable so the ending
+            # lands at zero. Seeking on an active pipeline is reliable; a seek
+            # issued while stopped is dropped by some backends.
+            player.play()
+
+            seeked = {"done": False}
+
+            def _align_to_end():
+                if seeked["done"] or self.players.get("timer") is not player:
+                    return
+                total = audio_ms or player.duration()
+                if total <= 0:
+                    return
+                if timer_ms >= total:
+                    seeked["done"] = True  # play from the start; nothing to seek
+                    return
+                if not player.isSeekable():
+                    return  # not seekable yet; retry on a later signal
+                player.setPosition(max(total - timer_ms, 0))
+                seeked["done"] = True
+                logging.debug(f"Timer aligned: seek to {max(total - timer_ms, 0)}ms of {total}ms")
+
+            player.seekableChanged.connect(lambda _ok: _align_to_end())
+            player.mediaStatusChanged.connect(lambda _st: _align_to_end())
+            player.durationChanged.connect(lambda _d: _align_to_end())
+            _align_to_end()
 
         except Exception as e:
             logging.error(f"Error playing audio: {e}", exc_info=True)
