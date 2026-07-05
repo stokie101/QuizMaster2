@@ -101,12 +101,11 @@
   function enhanceLinks(root) {
     root.querySelectorAll('button').forEach((btn) => {
       const label = (btn.textContent || '').trim().toLowerCase();
-      if (label.includes('open quizmaster.online')) {
-        btn.onclick = () => window.open('https://quizmaster.online', '_blank', 'noopener,noreferrer');
+      if (label.includes('open widgets.quizmaster.liveforge.online')) {
+        btn.onclick = () => window.open('https://widgets.quizmaster.liveforge.online', '_blank', 'noopener,noreferrer');
         btn.disabled = false;
-      }
-      if (label.includes('open widgets.quizmaster.online')) {
-        btn.onclick = () => window.open('https://widgets.quizmaster.online', '_blank', 'noopener,noreferrer');
+      } else if (label.includes('open quizmaster.liveforge.online')) {
+        btn.onclick = () => window.open('https://quizmaster.liveforge.online', '_blank', 'noopener,noreferrer');
         btn.disabled = false;
       }
     });
