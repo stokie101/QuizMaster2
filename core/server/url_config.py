@@ -14,11 +14,14 @@ logger = logging.getLogger(__name__)
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:5555").rstrip("/")
 
 # Official QuizMaster browser-source URLs use the QuizMaster widget host,
-# scoped with /u/<public_widget_id>/... profile paths.
+# scoped with /u/<public_widget_id>/... profile paths. The host is a
+# QuizMaster-specific subdomain of the existing liveforge.online zone, exposed
+# to the running desktop bridge server (127.0.0.1:5555) through a Cloudflare
+# Tunnel -- exactly as widgets.liveforge.online is for the LiveForge app.
 HOSTED_WIDGETS_BASE_URL = (
     os.getenv("HOSTED_WIDGETS_BASE_URL")
     or os.getenv("WIDGETS_BASE_URL")
-    or "https://widgets.quizmaster.online"
+    or "https://widgets.quizmaster.liveforge.online"
 ).rstrip("/")
 WIDGETS_BASE_URL = (os.getenv("WIDGETS_BASE_URL") or HOSTED_WIDGETS_BASE_URL).rstrip("/")
 PUBLIC_BASE_URL = WIDGETS_BASE_URL
