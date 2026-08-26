@@ -13,33 +13,32 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 
-from core.utils.embedded_web_assets import embedded_asset_response
+from core.utils.embedded_web_assets import embedded_asset_response, has_embedded_assets
 from core.utils.resource_loader import get_resource_path
 
 
-_core_assets_root: Path | None = None
+_app_root: Path | None = None
 
 
-def _project_root() -> Path:
-    # core/server/routes/embedded_frontend_routes.py -> repository root
-    return Path(__file__).resolve().parents[3]
-
-
-def _core_assets_dir() -> Path:
-    global _core_assets_root
-    if _core_assets_root is None:
+def _app_root_dir() -> Path:
+    """Application root: the source tree in development, the app dir when frozen."""
+    global _app_root
+    if _app_root is None:
         try:
-            _core_assets_root = get_resource_path("core/assets").resolve()
+            _app_root = get_resource_path("core/assets").resolve().parent.parent
         except Exception:
-            _core_assets_root = Path("core/assets").resolve()
-    return _core_assets_root
+            _app_root = Path(__file__).resolve().parents[3]
+    return _app_root
 
 
 def _loose_asset_file(relative_path: str) -> Path | None:
-    if not relative_path.startswith("core/assets/"):
-        return None
-    root = _core_assets_dir()
-    candidate = (root / relative_path[len("core/assets/"):]).resolve()
+    """Resolve an app-relative asset path to a file on disk, if one is there.
+
+    Development runs have no generated bundle, so every embedded route below
+    would 404 without this fallback.
+    """
+    root = _app_root_dir()
+    candidate = (root / relative_path).resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
@@ -83,7 +82,14 @@ def _drop_frontend_routes(app: FastAPI) -> None:
     FastAPI matches those older disk-backed handlers before the embedded handlers
     added below, so Nuitka release builds can still return "*.html not found" for
     hosted/public widget URLs even though the asset is present in web_assets_bundle.
+
+    Only release builds have a bundle to serve from, so only they drop routes.
     """
+    if not has_embedded_assets():
+        # Development run: there is no bundle to serve from, so the on-disk
+        # routes registered earlier are the only ones that can return the file.
+        return
+
     paths_to_drop = set(EXACT_FRONTEND_ROUTES)
     for route_path in SCOPED_WIDGET_ROUTES:
         paths_to_drop.add(f"/u/{{public_widget_id}}{route_path}")
@@ -108,13 +114,9 @@ def _asset_or_404(relative_path: str, media_type: str | None):
     response = embedded_asset_response(relative_path, media_type)
     if response is not None:
         return response
-    # Release builds serve everything from the bundle, but these routes replace
-    # the filesystem ones unconditionally. Without this fallback, running from
-    # source (or any build where one asset missed the bundle) answered every
-    # controls, display and leaderboard page with "Embedded asset not found".
-    disk_file = _repo_file(relative_path)
-    if disk_file is not None:
-        return FileResponse(str(disk_file), media_type=media_type)
+    loose = _loose_asset_file(relative_path)
+    if loose is not None:
+        return FileResponse(str(loose), media_type=media_type) if media_type else FileResponse(str(loose))
     raise HTTPException(status_code=404, detail=f"Asset not found: {relative_path}")
 
 
@@ -135,6 +137,7 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
 
     @app.get("/core/assets/{asset_path:path}", include_in_schema=False)
     async def core_assets(asset_path: str):
+        # Branding images ship loose so they stay swappable, so disk wins here.
         relative = f"core/assets/{asset_path}"
         loose = _loose_asset_file(relative)
         if loose is not None:
