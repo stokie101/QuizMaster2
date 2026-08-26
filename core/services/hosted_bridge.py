@@ -1,0 +1,350 @@
+"""Outbound bridge from the desktop app to the LiveForge widget host.
+
+The hosted OBS control dock (https://widgets.liveforge.online/u/<pwid>/quiz_controls)
+cannot reach this machine: it posts its commands to the widget Worker, which
+holds them in a per-account channel, and it reads quiz state from the same
+channel. Nothing on the desktop consumed either half, so every hosted Start,
+Pause, Skip and Load ended in the dock with nothing behind it.
+
+This bridge is that missing half. While the app is signed in it:
+
+  * holds a WebSocket to ``/api/quiz/commands/stream`` and replays each queued
+    command against this app's own local quiz API, exactly as the in-app dock
+    would; and
+  * publishes quiz state to ``/api/quiz/control-state`` and the display snapshot
+    to ``/api/publish/quiz``, so the hosted dock's buttons and the hosted
+    overlays reflect what the app is actually doing.
+
+It authenticates with the signed-in account's access token and talks to the
+local bridge server over 127.0.0.1, so it needs no privileged access of its own.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import threading
+from typing import Any, Dict, Optional
+from urllib.parse import quote
+
+logger = logging.getLogger(__name__)
+
+# Hosted command -> local endpoint. The hosted dock speaks the same vocabulary as
+# the in-app dock, so this is a direct map with two exceptions: the recovery
+# commands collapse onto the local stop endpoint, which is the closest thing the
+# desktop runtime exposes.
+COMMAND_ENDPOINTS: Dict[str, str] = {
+    "start": "/api/quiz/start",
+    "pause": "/api/quiz/pause",
+    "resume": "/api/quiz/resume",
+    "stop": "/api/quiz/stop",
+    "skip": "/api/quiz/skip",
+    "load": "/api/quiz/load",
+    "force_refresh_display": "/api/quiz/force_refresh_display",
+    "save_config": "/api/config/save",
+    "reset_quiz_runtime": "/api/quiz/stop",
+    "reset": "/api/quiz/stop",
+    "unload": "/api/quiz/stop",
+    "clear_quiz": "/api/quiz/stop",
+}
+
+STATE_POLL_SECONDS = 2.0
+RECONNECT_MIN_SECONDS = 3.0
+RECONNECT_MAX_SECONDS = 60.0
+LOCAL_TIMEOUT_SECONDS = 30.0
+PUBLISH_TIMEOUT_SECONDS = 15.0
+
+
+class HostedQuizBridge:
+    """Connects this app's quiz runtime to its hosted control dock."""
+
+    def __init__(self, local_base_url: str, widget_type: str = "quiz") -> None:
+        self._local_base_url = local_base_url.rstrip("/")
+        self._widget_type = widget_type
+        self._thread: Optional[threading.Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._stopping = threading.Event()
+        self._handled_versions: set[str] = set()
+        self._last_published: Optional[str] = None
+        self._last_snapshot: Optional[str] = None
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stopping.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="HostedQuizBridge")
+        self._thread.start()
+        logger.info("hosted_bridge_started widget=%s", self._widget_type)
+
+    def stop(self) -> None:
+        self._stopping.set()
+        loop = self._loop
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+
+    # -- thread body --------------------------------------------------------
+
+    def _run(self) -> None:
+        try:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_until_complete(
+                asyncio.gather(self._command_loop(), self._state_loop())
+            )
+        except Exception as exc:
+            logger.warning("hosted_bridge_stopped widget=%s error=%s", self._widget_type, exc)
+        finally:
+            try:
+                if self._loop:
+                    self._loop.close()
+            except Exception:
+                pass
+
+    # -- credentials --------------------------------------------------------
+
+    @staticmethod
+    def _credentials() -> tuple[Optional[str], Optional[str]]:
+        """Return (access_token, public_widget_id) for the signed-in account."""
+        try:
+            from core.services.auth_service import AuthService
+
+            auth = AuthService.get_instance()
+            session = getattr(auth, "current_session", None)
+            profile = getattr(auth, "current_profile", None)
+            access_token = str(getattr(session, "access_token", "") or "").strip() or None
+            public_widget_id = str(getattr(profile, "public_widget_id", "") or "").strip() or None
+            return access_token, public_widget_id
+        except Exception:
+            return None, None
+
+    @staticmethod
+    def _hosted_base_url() -> str:
+        from core.server.url_config import HOSTED_WIDGETS_BASE_URL
+
+        return HOSTED_WIDGETS_BASE_URL.rstrip("/")
+
+    # -- command channel ----------------------------------------------------
+
+    async def _command_loop(self) -> None:
+        backoff = RECONNECT_MIN_SECONDS
+        while not self._stopping.is_set():
+            access_token, public_widget_id = self._credentials()
+            if not access_token or not public_widget_id:
+                await asyncio.sleep(RECONNECT_MIN_SECONDS)
+                continue
+            try:
+                await self._consume_commands(access_token)
+                backoff = RECONNECT_MIN_SECONDS
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.info(
+                    "hosted_bridge_command_stream_retry widget=%s backoff=%.0fs error=%s",
+                    self._widget_type, backoff, exc,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, RECONNECT_MAX_SECONDS)
+
+    async def _consume_commands(self, access_token: str) -> None:
+        import websockets
+
+        base = self._hosted_base_url()
+        ws_url = base.replace("https://", "wss://").replace("http://", "ws://")
+        url = f"{ws_url}/api/{self._widget_type}/commands/stream"
+
+        async with websockets.connect(
+            url,
+            additional_headers={"Authorization": f"Bearer {access_token}"},
+            ping_interval=20,
+            ping_timeout=20,
+            max_queue=32,
+        ) as socket:
+            logger.info("hosted_bridge_command_stream_open widget=%s", self._widget_type)
+            while not self._stopping.is_set():
+                raw = await socket.recv()
+                await self._handle_message(raw)
+
+    async def _handle_message(self, raw: Any) -> None:
+        if not isinstance(raw, str):
+            return
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(payload, dict):
+            return
+
+        kind = str(payload.get("type") or "")
+        if kind in {"ready", "pong", "viewer_census", "widget_event"}:
+            return
+        command = str(payload.get("command") or "")
+        if not command:
+            return
+
+        # The hosted channel replays its queue on every (re)connect, so an
+        # already-executed command must never run twice.
+        version = str(payload.get("id") or payload.get("version") or "")
+        if version and version in self._handled_versions:
+            return
+        if version:
+            self._handled_versions.add(version)
+            if len(self._handled_versions) > 200:
+                self._handled_versions = set(list(self._handled_versions)[-100:])
+
+        await asyncio.to_thread(self._execute_locally, command, payload.get("args") or {})
+        await self._publish_state(force=True)
+
+    def _execute_locally(self, command: str, args: Any) -> None:
+        import requests
+
+        endpoint = COMMAND_ENDPOINTS.get(command)
+        if not endpoint:
+            logger.warning("hosted_bridge_unknown_command widget=%s command=%s", self._widget_type, command)
+            return
+
+        body: Dict[str, Any] = {}
+        if isinstance(args, dict):
+            body = dict(args)
+        if command == "save_config" and "settings" not in body:
+            body = {"settings": body}
+
+        try:
+            response = requests.post(
+                f"{self._local_base_url}{endpoint}",
+                json=body,
+                timeout=LOCAL_TIMEOUT_SECONDS,
+            )
+            logger.info(
+                "hosted_bridge_command_executed widget=%s command=%s status=%s",
+                self._widget_type, command, response.status_code,
+            )
+        except Exception as exc:
+            logger.warning(
+                "hosted_bridge_command_failed widget=%s command=%s error=%s",
+                self._widget_type, command, exc,
+            )
+
+    # -- state channel ------------------------------------------------------
+
+    async def _state_loop(self) -> None:
+        while not self._stopping.is_set():
+            try:
+                await self._publish_state()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("hosted_bridge_state_publish_failed widget=%s error=%s", self._widget_type, exc)
+            await asyncio.sleep(STATE_POLL_SECONDS)
+
+    async def _publish_state(self, force: bool = False) -> None:
+        access_token, public_widget_id = self._credentials()
+        if not access_token or not public_widget_id:
+            return
+        await asyncio.to_thread(self._publish_state_blocking, access_token, public_widget_id, force)
+
+    def _publish_state_blocking(self, access_token: str, public_widget_id: str, force: bool) -> None:
+        import requests
+
+        try:
+            full = requests.get(f"{self._local_base_url}/api/state/full", timeout=LOCAL_TIMEOUT_SECONDS).json()
+        except Exception as exc:
+            logger.debug("hosted_bridge_local_state_unavailable error=%s", exc)
+            return
+        if not isinstance(full, dict) or not full.get("success"):
+            return
+
+        state = full.get("state") or {}
+        payload = {
+            "public_widget_id": public_widget_id,
+            "state": {
+                "state": state.get("state"),
+                "quiz_state": state.get("state"),
+                "quiz_loaded": bool(state.get("quiz_loaded")),
+                "paused": bool(state.get("paused")),
+                "questionCount": int(state.get("total_questions") or 0),
+                "questionIndex": int(state.get("question_index") or 0),
+                "running": str(state.get("state") or "").upper() == "RUNNING",
+                "answer_visible": bool(state.get("answer_visible")),
+                "waiting_for_manual_advance": bool(state.get("waiting_for_manual_advance")),
+                "config": full.get("config") or {},
+                "state_version": state.get("reset_version"),
+            },
+        }
+
+        fingerprint = json.dumps(payload["state"], sort_keys=True, default=str)
+        if not force and fingerprint == self._last_published:
+            self._publish_snapshot(access_token, public_widget_id)
+            return
+
+        base = self._hosted_base_url()
+        try:
+            response = requests.post(
+                f"{base}/api/{self._widget_type}/control-state",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=payload,
+                timeout=PUBLISH_TIMEOUT_SECONDS,
+            )
+            if response.status_code == 200:
+                self._last_published = fingerprint
+            else:
+                logger.info(
+                    "hosted_bridge_state_refused widget=%s status=%s",
+                    self._widget_type, response.status_code,
+                )
+        except Exception as exc:
+            logger.debug("hosted_bridge_state_post_failed widget=%s error=%s", self._widget_type, exc)
+
+        self._publish_snapshot(access_token, public_widget_id)
+
+    def _publish_snapshot(self, access_token: str, public_widget_id: str) -> None:
+        """Push the display snapshot so hosted overlays render the live quiz."""
+        import requests
+
+        try:
+            body = requests.get(f"{self._local_base_url}/api/snapshot", timeout=LOCAL_TIMEOUT_SECONDS).json()
+        except Exception:
+            return
+        snapshot = body.get("snapshot") if isinstance(body, dict) else None
+        if snapshot is None:
+            return
+
+        fingerprint = json.dumps(snapshot, sort_keys=True, default=str)
+        if fingerprint == self._last_snapshot:
+            return
+
+        try:
+            response = requests.post(
+                f"{self._hosted_base_url()}/api/publish/{self._widget_type}"
+                f"?public_widget_id={quote(public_widget_id, safe='')}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"snapshot": snapshot, "public_widget_id": public_widget_id},
+                timeout=PUBLISH_TIMEOUT_SECONDS,
+            )
+            if response.status_code < 300:
+                self._last_snapshot = fingerprint
+        except Exception as exc:
+            logger.debug("hosted_bridge_snapshot_failed widget=%s error=%s", self._widget_type, exc)
+
+
+_bridge_lock = threading.Lock()
+_bridge: Optional[HostedQuizBridge] = None
+
+
+def start_hosted_bridge(local_base_url: str) -> Optional[HostedQuizBridge]:
+    global _bridge
+    with _bridge_lock:
+        if _bridge is None:
+            _bridge = HostedQuizBridge(local_base_url)
+        _bridge.start()
+        return _bridge
+
+
+def stop_hosted_bridge() -> None:
+    global _bridge
+    with _bridge_lock:
+        if _bridge is not None:
+            _bridge.stop()
+            _bridge = None

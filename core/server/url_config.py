@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 MAX_ACTION_SCREENS = 0
 
@@ -121,6 +121,55 @@ def get_public_url(path: str, query: dict[str, object] | None = None, user_id: s
         return ""
 
 
+# Hosted control docks are the only widget URLs that need a credential: they run
+# in OBS, which carries none of the app's cookies, so the dock proves ownership
+# with a permanent signed token in the URL fragment. Every surface that shows or
+# copies a control URL must go through control_dock_url() -- a control URL
+# without its fragment loads a dock that can only report "not authorized".
+CONTROL_DOCK_PATHS = {
+    "/quiz_controls": "quiz",
+    "/chess/controls": "chess",
+}
+
+
+def control_widget_type(path: str) -> str | None:
+    return CONTROL_DOCK_PATHS.get(normalize_widget_path(path))
+
+
+def control_dock_url(
+    path: str,
+    query: dict[str, object] | None = None,
+    user_id: str | None = None,
+    mint: bool = True,
+) -> str:
+    """Build a hosted control dock URL carrying its owner token.
+
+    ``mint`` may be turned off on hot paths: the cached token is then used when
+    one has already been minted, and the URL is returned bare rather than
+    blocking on the widget host.
+    """
+    widget_type = control_widget_type(path)
+    url = get_public_url(path, query, user_id=user_id)
+    if not widget_type or not url:
+        return url
+
+    try:
+        from core.services.hosted_control import HostedControlTokens
+
+        tokens = HostedControlTokens.get_instance()
+        public_widget_id = user_id or str(resolved_runtime_identity().get("public_widget_id") or "")
+        token = tokens.cached_token(widget_type, public_widget_id)
+        if not token and mint:
+            token = tokens.token(widget_type)
+    except Exception as exc:  # never let a token lookup break URL generation
+        _debug("control_token_unavailable path=%s error=%s", normalize_widget_path(path), str(exc))
+        return url
+
+    if not token:
+        return url
+    return f"{url}#control_token={quote(token, safe='')}"
+
+
 def get_internal_url(path: str = "", query: dict[str, object] | None = None) -> str:
     clean_path = path if path.startswith("/") else f"/{path}" if path else ""
     return _append_query(f"{LOCAL_BASE_URL}{clean_path}", query)
@@ -162,14 +211,14 @@ def _build_session_urls(widget_type: str, session_id: str | None = None) -> dict
             "session_id": session.session_id,
             "display_url": get_public_url("/quiz_display", query, user_id=public_widget_id),
             "leaderboard_url": get_public_url("/leaderboard", query, user_id=public_widget_id),
-            "controls_url": get_public_url("/quiz_controls", control_query, user_id=public_widget_id),
+            "controls_url": control_dock_url("/quiz_controls", control_query, user_id=public_widget_id),
         }
     if widget_type == "chess":
         return {
             "session_id": session.session_id,
             "display_url": get_public_url("/chess/display", query, user_id=public_widget_id),
             "status_url": get_public_url("/chess/leaderboard", query, user_id=public_widget_id),
-            "controls_url": get_public_url("/chess/controls", control_query, user_id=public_widget_id),
+            "controls_url": control_dock_url("/chess/controls", control_query, user_id=public_widget_id),
         }
     raise ValueError("Unsupported widget type")
 
@@ -211,10 +260,10 @@ def as_dict() -> dict[str, object]:
             "actions_events_overlay": get_public_url("/actions_events/overlay"),
             "actions_events_control_dock": get_public_url("/actions-events/control-dock"),
             "quiz_display": get_public_url("/quiz_display"),
-            "quiz_controls": get_public_url("/quiz_controls"),
+            "quiz_controls": control_dock_url("/quiz_controls", mint=False),
             "quiz_leaderboard": get_public_url("/leaderboard"),
             "chess_display": get_public_url("/chess/display"),
-            "chess_controls": get_public_url("/chess/controls"),
+            "chess_controls": control_dock_url("/chess/controls", mint=False),
             "chess_leaderboard": get_public_url("/chess/leaderboard"),
             "genre_wheel_widget": get_public_url("/genre_wheel/widget"),
             "genre_wheel_control": get_public_url("/genre_wheel/control"),
