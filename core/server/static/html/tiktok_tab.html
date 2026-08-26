@@ -4,24 +4,90 @@
     <meta charset="UTF-8"/>
     <meta content="width=device-width,initial-scale=1.0" name="viewport"/>
     <title>TikTok Connector - QuizMaster</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
     <link href="/styles.css" rel="stylesheet"/>
+    <link href="/tiktok.css" rel="stylesheet"/>
+    <script src="/static/js/quizmaster_url_config.js"></script>
 </head>
-<body>
-  <main class="page-surface">
-    <header class="page-hero">
-      <div>
-        <p class="eyebrow">TikTok LIVE</p>
-        <h1>TikTok Connector</h1>
-        <p class="hero-copy">Use the TikTok connector in the sidebar to link your account, connect live chat, and confirm the LIVE status.</p>
-      </div>
-      <span class="pill neutral">Moved to sidebar</span>
-    </header>
+<body class="page-surface tiktok-page">
+  <header class="page-hero">
+    <div>
+      <p class="eyebrow">TikTok LIVE</p>
+      <h1>TikTok Connector</h1>
+      <p class="hero-copy">Link your TikTok account or connect a username manually, then read live chat answers straight into the quiz.</p>
+    </div>
+    <span id="headerStatusText" class="pill danger">Disconnected</span>
+  </header>
 
-    <section class="card">
-      <div class="card-head"><h2>Use the sidebar connector</h2></div>
-      <p class="muted">The TikTok tools now live in the sidebar so you can connect TikTok LIVE chat from anywhere in QuizMaster.</p>
-      <p class="muted">When connected, the sidebar will show your linked TikTok account and a LIVE connected marker.</p>
-    </section>
-  </main>
+  <div class="tt-status-bar">
+    <span id="tiktokStatus" class="status-indicator disconnected"></span>
+    <span id="statusText">Disconnected</span>
+  </div>
+
+  <section class="two-column">
+    <article class="card" id="linkedAccountCard">
+      <div class="card-head"><h2>TikTok account</h2><span class="pill neutral">Official login</span></div>
+      <p class="muted">Sign in through the QuizMaster TikTok login to link your account. Live chat then connects to that account with no username to type.</p>
+
+      <div class="tt-account">
+        <img id="linkedAvatar" class="tt-avatar" alt="TikTok avatar" hidden>
+        <div id="linkedAvatarFallback" class="tt-avatar tt-avatar-fallback">@</div>
+        <div class="tt-account-copy">
+          <div id="linkedDisplayName" class="tt-account-name">No TikTok account linked</div>
+          <div id="linkedUsername" class="tt-account-user">Use Connect TikTok Account first.</div>
+          <div id="linkedStats" class="tt-account-stats">Account snapshot unavailable.</div>
+        </div>
+      </div>
+
+      <div class="tt-actions">
+        <button id="officialLoginBtn" class="button" type="button">Connect TikTok account</button>
+        <button id="officialStatusBtn" class="button secondary" type="button">Refresh linked account</button>
+      </div>
+      <p id="officialLoginStatus" class="muted tt-login-status">Checking linked TikTok account…</p>
+
+      <label class="settings-label" for="linkedUsernameInput">Linked username</label>
+      <input id="linkedUsernameInput" class="settings-input" type="text" readonly placeholder="Not linked yet">
+      <div class="tt-actions">
+        <button id="connectBtn" class="button" type="button" disabled>Connect live chat</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><h2>Manual login</h2><span class="pill neutral">Username</span></div>
+      <p class="muted">Connect to any TikTok LIVE by username. Use this when you have not linked an account, or to read a different creator's chat.</p>
+
+      <label class="settings-label" for="usernameInput">TikTok username</label>
+      <input id="usernameInput" class="settings-input" type="text" placeholder="username (without @)" autocomplete="off" spellcheck="false">
+      <p class="muted tt-hint">The creator must be live for chat to connect. The last username you used is remembered.</p>
+
+      <div class="tt-actions">
+        <button id="manualConnectBtn" class="button" type="button">Connect manually</button>
+        <button id="disconnectBtn" class="button secondary" type="button" disabled>Disconnect</button>
+      </div>
+    </article>
+  </section>
+
+  <section class="two-column tt-lower">
+    <article class="card tt-chat-card">
+      <div class="card-head">
+        <h2>Live chat</h2>
+        <div class="tt-chat-controls">
+          <label class="tt-check"><input id="toggleChat" type="checkbox" checked> Show feed</label>
+          <label class="tt-check"><input id="limitChat" type="checkbox" checked> Limit history</label>
+          <button id="clearChatBtn" class="button secondary tt-inline-btn" type="button">Clear</button>
+        </div>
+      </div>
+      <div id="chatScrollArea" class="tt-chat-scroll">
+        <div id="chatContainer" class="tt-chat"></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><h2>Connection log</h2></div>
+      <div id="connectionLog" class="tt-log"></div>
+    </article>
+  </section>
+
+  <script src="/bootstrap.js"></script>
 </body>
 </html>

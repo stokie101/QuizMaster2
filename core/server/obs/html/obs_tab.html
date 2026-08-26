@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Overlay Studio - QuizMaster</title>
   <link href="/styles.css" rel="stylesheet">
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="/static/js/socket.io.min.js"></script>
+  <script>if (typeof window.io !== "function") document.write('<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"><\/script>');</script>
   <script src="/static/js/quizmaster_url_config.js"></script>
 </head>
 <body data-obs-page="tab">

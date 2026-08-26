@@ -120,14 +120,17 @@ def register_embedded_frontend_routes(app: FastAPI) -> None:
             return FileResponse(str(loose))
         return _asset_or_404(relative, None)
 
+    # Pass no media type so each asset keeps the one recorded in the bundle.
+    # Forcing application/octet-stream here made release builds serve bundled
+    # JS and CSS as opaque downloads, which browsers refuse to run or apply.
     @app.get("/static/{asset_path:path}", include_in_schema=False)
     async def static_assets(asset_path: str):
-        return _asset_or_404(f"core/server/static/{asset_path}", "application/octet-stream")
+        return _asset_or_404(f"core/server/static/{asset_path}", None)
 
     @app.get("/themes/{asset_path:path}", include_in_schema=False)
     async def theme_assets(asset_path: str):
-        return _asset_or_404(f"core/server/themes/{asset_path}", "application/octet-stream")
+        return _asset_or_404(f"core/server/themes/{asset_path}", None)
 
     @app.get("/overlays/{asset_path:path}", include_in_schema=False)
     async def overlay_assets(asset_path: str):
-        return _asset_or_404(f"core/server/overlays/{asset_path}", "application/octet-stream")
+        return _asset_or_404(f"core/server/overlays/{asset_path}", None)

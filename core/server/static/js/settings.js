@@ -355,15 +355,41 @@ function currentPageKey() {
   return params.get('section') || 'general';
 }
 function normalizePage(key) { return SETTINGS_PAGES[key] ? key : 'general'; }
+
+function renderNav(activeKey) {
+  const nav = document.getElementById('settingsNav');
+  if (!nav) return;
+  nav.innerHTML = Object.entries(SETTINGS_PAGES)
+    .map(([key, page]) => `<button type="button" class="settings-nav-btn${key === activeKey ? ' active' : ''}" data-section="${key}">${page.title}</button>`)
+    .join('');
+}
+
 function renderPage(key = currentPageKey()) {
   key = normalizePage(key);
   const page = SETTINGS_PAGES[key];
   document.getElementById('settingsTitle').textContent = page.title;
   document.getElementById('settingsDescription').textContent = page.description;
   document.getElementById('settingsContent').innerHTML = page.render();
+  renderNav(key);
+}
+
+function goToPage(key) {
+  key = normalizePage(key);
+  // Keep ?section= in sync so a reload (and the browser's Back button) lands
+  // on the same page.
+  const url = new URL(window.location.href);
+  url.searchParams.set('section', key);
+  window.history.pushState({ section: key }, '', url);
+  renderPage(key);
+  document.querySelector('.settings-shell')?.scrollTo({ top: 0 });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('settingsNav')?.addEventListener('click', (event) => {
+    const button = event.target.closest('.settings-nav-btn');
+    if (button) goToPage(button.dataset.section);
+  });
+  window.addEventListener('popstate', () => renderPage());
   await refreshRuntimeStatus();
   renderPage();
 });

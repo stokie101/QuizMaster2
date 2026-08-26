@@ -96,11 +96,12 @@ window.addEventListener('message', (event) => {
 class QuizSettingsManager {
   constructor(controls) {
     this.controls = controls;
-    this.apiBase = `${window.location.origin}${window.QuizMasterURLs?.apiPrefix?.() || ''}`;
     this.saveTimeout = null;
     this.isLoading = false;
     this.lastTheme = null;
     this.themeUpdateLock = false;
+    this._bridgeBound = false;
+    this._lastSaveAt = 0;
 
     this.init();
   }
@@ -170,22 +171,16 @@ class QuizSettingsManager {
 
 
   _setupThemeListeners() {
-    // Listen for WebSocket theme updates
-    if (window.httpBridgeClient) {
-      const reloadSettings = () => {
-        console.log('[Settings] 🌐 Settings update received; reloading settings');
-        this.loadSettings();
-      };
-      window.httpBridgeClient.on('signal:config_updated', reloadSettings);
-      window.httpBridgeClient.on('signal:settings_changed', reloadSettings);
-
-      window.httpBridgeClient.on('signal:theme_sync', (payload) => {
-        const theme = payload?.activeTheme || payload?.theme;
-        if (theme && !this.themeUpdateLock) {
-          console.log('[Settings] 🌐 WS theme update:', theme);
-          this._updateThemeUI(theme);
-        }
-      });
+    // The bridge client is created by bootstrap.js, which can resolve after the
+    // controls are constructed (and does not resolve at all when Socket.IO is
+    // unavailable). Keep watching so a late bridge still gets wired up.
+    this._bindBridgeListeners();
+    if (!this._bridgeBound) {
+      let attempts = 0;
+      const poll = setInterval(() => {
+        attempts += 1;
+        if (this._bindBridgeListeners() || attempts > 40) clearInterval(poll);
+      }, 250);
     }
 
     // Listen for postMessage theme updates
@@ -196,6 +191,35 @@ class QuizSettingsManager {
         this._updateThemeUI(theme);
       }
     });
+  }
+
+  _bindBridgeListeners() {
+    const bridge = window.httpBridgeClient;
+    if (this._bridgeBound || !bridge?.on) return this._bridgeBound === true;
+
+    const reloadSettings = () => {
+      // Skip the echo of our own save so a slow round trip cannot overwrite a
+      // control the user is still adjusting.
+      if (Date.now() - (this._lastSaveAt || 0) < 1500) return;
+      console.log('[Settings] 🌐 Settings update received; reloading settings');
+      this.loadSettings();
+    };
+    bridge.on('signal:config_updated', reloadSettings);
+    bridge.on('signal:settings_changed', reloadSettings);
+    bridge.on('config_updated', reloadSettings);
+    bridge.on('settings_changed', reloadSettings);
+
+    bridge.on('signal:theme_sync', (payload) => {
+      const theme = payload?.activeTheme || payload?.theme;
+      if (theme && !this.themeUpdateLock) {
+        console.log('[Settings] 🌐 WS theme update:', theme);
+        this._updateThemeUI(theme);
+      }
+    });
+
+    this._bridgeBound = true;
+    console.log('[Settings] ✅ Bridge settings listeners bound');
+    return true;
   }
 
   _updateThemeUI(theme) {
@@ -366,6 +390,7 @@ class QuizSettingsManager {
     if (this.isLoading) return;
 
     this._showSaveStatus('Saving…', 'saving');
+    this._lastSaveAt = Date.now();
     const settingsObject = this._gatherSettings();
     console.log('[Settings] 💾 Saving settings:', settingsObject);
 
@@ -387,6 +412,7 @@ class QuizSettingsManager {
       const result = await response.json();
 
       if (response.ok && result.success) {
+        this._lastSaveAt = Date.now();
         this._showSaveStatus('Saved', 'saved');
         console.log('[Settings] ✅ Settings saved successfully:', result.updates_count, 'updates');
       } else {

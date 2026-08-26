@@ -5,6 +5,7 @@ const TAB_ROUTES = {
   main: "/main_tab.html",
   builder: "/quiz_tab.html?mode=builder",
   control: "/core/quiz/html/controls.html",
+  tiktok: "/tiktok_tab.html",
   overlay: "/overlay-studio",
   account: "/account.html",
   settings: "/settings"
