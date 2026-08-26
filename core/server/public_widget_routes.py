@@ -118,6 +118,42 @@ def _persist_control_snapshot(feature: str, public_widget_id: str, request: Requ
         logger.warning("scoped_widget_emit_failed feature=%s error=%s", feature, exc)
 
 
+def _apply_optional_control_credential(
+    store: WidgetSessionStore,
+    feature: str,
+    session,
+    session_id: str,
+    control_token: str | None,
+    authorization: str | None,
+) -> None:
+    """Verify a supplied control credential without making it mandatory.
+
+    The caller has already proven ownership through the validated
+    public_widget_id in the path. A credential that no longer verifies (an
+    expired control token left in sessionStorage, say) is therefore logged and
+    ignored rather than locking the owner out of their own controls.
+    """
+    if control_token and session_id:
+        try:
+            store.authorize_control(feature, session_id, control_token)
+            return
+        except SessionAuthorizationError as exc:
+            logger.info(
+                "control_token_not_honoured feature=%s session_id=%s reason=%s",
+                feature, session_id, exc,
+            )
+    if not authorization:
+        return
+    from core.server.widget_session_routes import _authenticated_owner
+
+    try:
+        owner_user_id, _ = _authenticated_owner(authorization)
+        if session is not None:
+            store.authorize_owner(feature, session.session_id, owner_user_id)
+    except (HTTPException, SessionAuthorizationError) as exc:
+        logger.info("owner_token_not_honoured feature=%s reason=%s", feature, exc)
+
+
 def _control_session_dependency(feature: str):
     def validate(
         request: Request,
@@ -136,20 +172,16 @@ def _control_session_dependency(feature: str):
         try:
             if session_id:
                 session = store.resolve_public(feature, public_widget_id, session_id)
-                if x_quizmaster_control_token:
-                    store.authorize_control(feature, session_id, x_quizmaster_control_token)
-                else:
-                    from core.server.widget_session_routes import _authenticated_owner
-                    owner_user_id, _ = _authenticated_owner(authorization)
-                    store.authorize_owner(feature, session.session_id, owner_user_id)
-            else:
-                # Sessionless control: the validated public_widget_id above is
-                # the credential, so the matching signed-in owner is already
-                # authorized. An access token is still honoured if one is sent,
-                # but it is never required and never accepted in a URL.
-                if authorization:
-                    from core.server.widget_session_routes import _authenticated_owner
-                    _authenticated_owner(authorization)
+            # A control token or owner access token binds the request to one
+            # session more tightly, so honour it when the caller sends one --
+            # but never require it. The dock's control-exchange code is
+            # single-use and short-lived, so an OBS refresh (or any reload past
+            # the token's lifetime) has no way to obtain a new one, and every
+            # Start/Stop came back unauthorized. Requiring it also secured
+            # nothing: a caller can drop ?session= and take the branch below.
+            _apply_optional_control_credential(
+                store, feature, session, session_id, x_quizmaster_control_token, authorization,
+            )
             yield session
             _persist_control_snapshot(feature, public_widget_id, request, session)
         except HTTPException:

@@ -527,6 +527,7 @@ class QuizControls {
     this.load_quiz_button = document.querySelector('[data-qc-load]');
     this.file_input = document.getElementById('file-input');
     this.questions_loaded_label = document.querySelector('[data-qc-hint-quiz]');
+    this.error_label = document.querySelector('[data-qc-error]');
 
     this.status_value = document.querySelector('[data-qc-status]');
     this.force_refresh_button = document.getElementById('forceQuestionBtn');
@@ -828,68 +829,58 @@ class QuizControls {
     }
   }
 
-  async _onStartClick() {
-    console.log('[QuizControls] Start button clicked');
+  _showControlError(action, message) {
+    console.error(`[QuizControls] ${action} failed:`, message);
+    const target = this.error_label || this.questions_loaded_label;
+    if (!target) return;
+    target.textContent = `${action} failed: ${message}`;
+    target.hidden = false;
+    clearTimeout(this._controlErrorTimeout);
+    this._controlErrorTimeout = setTimeout(() => {
+      target.textContent = '';
+      if (target === this.error_label) target.hidden = true;
+    }, 8000);
+  }
+
+  // Control commands used to swallow every failure into the console, so an
+  // authorization or state error looked like a dead button.
+  async _sendCommand(action, endpoint) {
+    console.log(`[QuizControls] ${action} clicked`);
     try {
-      const response = await window.QuizMasterURLs.authorizedFetch('/api/quiz/start', { method: 'POST' });
-      const result = await response.json();
+      const response = await window.QuizMasterURLs.authorizedFetch(endpoint, { method: 'POST' });
+      const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) {
-        console.error('[QuizControls] Start failed:', result.error);
+        this._showControlError(action, result.detail || result.error || `HTTP ${response.status}`);
+        return false;
       }
+      return true;
     } catch (e) {
-      console.error('[QuizControls] Start failed:', e);
+      this._showControlError(action, e.message || String(e));
+      return false;
     }
   }
 
+  async _onStartClick() {
+    await this._sendCommand('Start', '/api/quiz/start');
+  }
+
   async _onPauseResumeClick() {
-    console.log('[QuizControls] Pause/Resume clicked');
-    try {
-      const currentState = String(this.current_quiz_state || 'IDLE').toUpperCase();
-      let endpoint = null;
-
-      if (currentState === 'PAUSED') {
-        endpoint = '/api/quiz/resume';
-      } else if (currentState === 'QUESTION_ACTIVE') {
-        endpoint = '/api/quiz/pause';
-      } else {
-        console.warn('[QuizControls] Pause/Resume ignored in state:', currentState);
-        return;
-      }
-
-      const response = await window.QuizMasterURLs.authorizedFetch(endpoint, { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        console.error('[QuizControls] Pause/Resume failed:', result.error);
-      }
-    } catch (e) {
-      console.error('[QuizControls] Pause/Resume failed:', e);
+    const currentState = String(this.current_quiz_state || 'IDLE').toUpperCase();
+    if (currentState === 'PAUSED') {
+      await this._sendCommand('Resume', '/api/quiz/resume');
+    } else if (currentState === 'QUESTION_ACTIVE') {
+      await this._sendCommand('Pause', '/api/quiz/pause');
+    } else {
+      console.warn('[QuizControls] Pause/Resume ignored in state:', currentState);
     }
   }
 
   async _onStopClick() {
-    console.log('[QuizControls] Stop button clicked');
-    try {
-      const response = await window.QuizMasterURLs.authorizedFetch('/api/quiz/stop', { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        console.error('[QuizControls] Stop failed:', result.error);
-      }
-    } catch (e) {
-      console.error('[QuizControls] Stop failed:', e);
-    }
+    await this._sendCommand('Stop', '/api/quiz/stop');
   }
 
   async _onSkipClick() {
-    console.log('[QuizControls] Skip button clicked');
-    try {
-      const response = await window.QuizMasterURLs.authorizedFetch('/api/quiz/skip', { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        console.error('[QuizControls] Skip failed:', result.error);
-      }
-    } catch (e) {
-      console.error('[QuizControls] Skip failed:', e);
-    }
+    await this._sendCommand('Skip', '/api/quiz/skip');
   }
 
   _onLoadQuizClick() {

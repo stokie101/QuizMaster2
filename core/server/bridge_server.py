@@ -702,6 +702,19 @@ class HTTPBridgeServer:
             )
             return -1
 
+    def _account_room_for_socket(self, sid: str, public_widget_id: str) -> str:
+        """Room for a widget that identifies itself by account, with no session.
+
+        The connect handler already resolved (and validated) this socket's room
+        from the request path and the signed-in identity, so reuse it. Falling
+        back to the account room keeps hosted widgets out of the internal
+        default room.
+        """
+        existing = self.socket_diagnostic_info(sid).get('room')
+        if existing:
+            return str(existing)
+        return f'profile:{public_widget_id}' if public_widget_id else self.LOCKED_ROOM
+
     def update_socket_diagnostics(self, sid: str, **fields) -> Dict[str, Any]:
         with self._clients_lock:
             info = self.connected_clients.setdefault(sid, {'connected_at': time.time(), 'type': 'unknown'})
@@ -891,18 +904,25 @@ class HTTPBridgeServer:
             session_id = str(payload.get('session_id') or '')
             public_widget_id = str(payload.get('public_widget_id') or '')
 
+            control_authorized = False
             if widget_type in {'quiz', 'chess'}:
+                # An account's widgets are keyed by public_widget_id alone -- the
+                # same credential the connect handler already validated, and the
+                # only one the published browser-source URLs carry. A session id
+                # is optional extra isolation; requiring one rejected every real
+                # dock and overlay with "unauthorized" and left them roomless.
                 try:
                     from core.server.widget_sessions import WidgetSessionStore
-                    session = WidgetSessionStore.get_instance().resolve_public(
-                        widget_type, public_widget_id, session_id
-                    )
-                    control_token = str(payload.get('control_token') or '')
-                    control_authorized = False
-                    if control_token:
-                        WidgetSessionStore.get_instance().authorize_control(widget_type, session_id, control_token)
-                        control_authorized = True
-                    room = session.room
+                    if session_id:
+                        store = WidgetSessionStore.get_instance()
+                        session = store.resolve_public(widget_type, public_widget_id, session_id)
+                        control_token = str(payload.get('control_token') or '')
+                        if control_token:
+                            store.authorize_control(widget_type, session_id, control_token)
+                            control_authorized = True
+                        room = session.room
+                    else:
+                        room = self._account_room_for_socket(sid, public_widget_id)
                 except Exception as exc:
                     logger.warning(
                         "widget_subscription_denied socket_id=%s widget_type=%s session_id=%s error=%s",
@@ -910,7 +930,7 @@ class HTTPBridgeServer:
                     )
                     await self.socketio.emit(
                         "room_joined",
-                        {"acknowledged": False, "error": "unauthorized"},
+                        {"acknowledged": False, "error": str(exc)},
                         to=sid,
                     )
                     return
@@ -923,7 +943,7 @@ class HTTPBridgeServer:
             self.update_socket_diagnostics(
                 sid, room=room, room_join_acknowledged=True,
                 public_widget_id=public_widget_id or None, live_session_id=session_id or None,
-                widget_type=widget_type or None, control_authorized=control_authorized if widget_type in {'quiz', 'chess'} else False,
+                widget_type=widget_type or None, control_authorized=control_authorized,
             )
             await self.socketio.emit("room_joined", {"room_id": room, "acknowledged": True}, to=sid)
             info = self.socket_diagnostic_info(sid)

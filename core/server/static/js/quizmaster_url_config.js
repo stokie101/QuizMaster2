@@ -193,17 +193,27 @@
         const url = new URL(window.location.href);
         const code = url.searchParams.get('control_exchange');
         if (!code) return controlToken();
-        const response = await fetch(`${apiBaseUrl()}${apiPrefix()}/api/widget-sessions/control/exchange`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code })
-        });
-        if (!response.ok) throw new Error(`Control authorization failed: HTTP ${response.status}`);
-        const payload = await response.json();
-        sessionStorage.setItem(`quizmaster_control_token:${payload.session_id}`, payload.control_token);
-        url.searchParams.delete('control_exchange');
-        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
-        return payload.control_token;
+        // The code is single-use, so an OBS refresh re-opens the original URL
+        // with a code that is already spent. That is expected and must not stop
+        // the page loading: the account's public_widget_id already authorizes
+        // control, and the token only adds per-session binding.
+        try {
+            const response = await fetch(`${apiBaseUrl()}${apiPrefix()}/api/widget-sessions/control/exchange`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = await response.json();
+            sessionStorage.setItem(`quizmaster_control_token:${payload.session_id}`, payload.control_token);
+            return payload.control_token;
+        } catch (error) {
+            debug('control_exchange_skipped', { message: error.message });
+            return controlToken();
+        } finally {
+            url.searchParams.delete('control_exchange');
+            window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+        }
     }
 
     function authorizedFetch(path, options = {}) {

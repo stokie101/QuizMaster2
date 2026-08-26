@@ -349,7 +349,11 @@ if (!window.HTTPBridgeClient) {
       });
 
       this._io.on("room_joined", (data) => {
-        this._log("info", `✓ Joined room: ${data.room_id}`);
+        if (data?.acknowledged === false) {
+          this._log("error", `Room join refused: ${data.error || "unknown reason"}`);
+          return;
+        }
+        this._log("info", `✓ Joined room: ${data?.room_id}`);
       });
 
       this._io.on("disconnect", (reason) => {
