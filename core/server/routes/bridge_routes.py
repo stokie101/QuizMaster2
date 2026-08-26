@@ -114,6 +114,10 @@ def register_routes(app: FastAPI, server):
     register_obs_routes(app, getattr(server, 'socketio', None), server)
     logger.info("✅ OBS routes registered")
 
+    from core.server.routes.hosted_control_routes import register_hosted_control_routes
+    register_hosted_control_routes(app, server)
+    logger.info("✅ Hosted control dock routes registered")
+
     from core.server.routes.client_routes import register_client_routes
     register_client_routes(app, server)
     logger.info("✅ Client routes registered")

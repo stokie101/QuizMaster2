@@ -1092,6 +1092,17 @@ class HTTPBridgeServer:
 
         self.thread = threading.Thread(target=run_server, daemon=True, name="HTTPBridge")
         self.thread.start()
+
+        # The hosted OBS control dock posts its commands to the LiveForge widget
+        # host, not to this machine. This bridge is the desktop half of that
+        # channel: without it the hosted dock has nothing behind it.
+        try:
+            from core.services.hosted_bridge import start_hosted_bridge
+
+            start_hosted_bridge(f"http://127.0.0.1:{self.port}")
+        except Exception as exc:
+            logger.warning("hosted_bridge_start_failed error=%s", exc)
+
         logger.info("✅ HTTP Bridge started")
         return None
 
@@ -1102,6 +1113,13 @@ class HTTPBridgeServer:
         logger.info("🛑 Stopping HTTP Bridge server...")
         self.running = False
         self._is_shutting_down = True
+
+        try:
+            from core.services.hosted_bridge import stop_hosted_bridge
+
+            stop_hosted_bridge()
+        except Exception as exc:
+            logger.debug("hosted_bridge_stop_skipped error=%s", exc)
 
         async def _graceful_disconnect_clients():
             # Best-effort pre-shutdown notification to make disconnect origin explicit.

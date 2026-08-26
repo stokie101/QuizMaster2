@@ -48,6 +48,26 @@
         return id ? String(id) : null;
     }
 
+    // Control docks run in OBS, which carries none of this app's cookies, so
+    // their URL has to carry the account's control token in its fragment. Every
+    // page builds control URLs through get_public_url, so the tokens are loaded
+    // once here and applied there -- a control URL is never handed out bare.
+    const CONTROL_DOCK_WIDGETS = { '/quiz_controls': 'quiz', '/chess/controls': 'chess' };
+    let controlTokens = {};
+
+    function loadControlTokens() {
+        return fetch('/api/hosted/control-docks', { cache: 'no-store' })
+            .then(response => (response.ok ? response.json() : null))
+            .then(payload => {
+                controlTokens = (payload && payload.tokens) || {};
+                const missing = Object.entries((payload && payload.errors) || {});
+                if (missing.length) debug('control_token_unavailable', Object.fromEntries(missing));
+            })
+            .catch(error => {
+                debug('control_token_error', { message: error.message });
+            });
+    }
+
     const readyPromise = fetch('/api/quizmaster/url-config', { cache: 'no-store' })
         .then(response => {
             debug('url_config_http', { status: response.status, host: window.location.host });
@@ -62,7 +82,8 @@
         .catch(error => {
             debug('url_config_error', { message: error.message, host: window.location.host });
             return config();
-        });
+        })
+        .then(current => loadControlTokens().then(() => current));
 
     function activeBaseUrl() {
         return trimTrailingSlash(config().WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL);
@@ -100,10 +121,24 @@
         return cleanPath.startsWith('/u/') ? cleanPath : `${userPrefix()}${cleanPath}`;
     }
 
+    function controlWidgetType(path) {
+        return CONTROL_DOCK_WIDGETS[normalizePath(path)] || null;
+    }
+
+    function withControlToken(url, path) {
+        const widgetType = controlWidgetType(path);
+        if (!widgetType) return url;
+        const token = controlTokens[widgetType];
+        if (!token) return url;
+        // The fragment is never sent to a server, so the token stays out of
+        // request logs, referrers and proxies.
+        return `${url}#control_token=${encodeURIComponent(token)}`;
+    }
+
     function get_public_url(path, query) {
         try {
             const base = trimTrailingSlash(config().WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL);
-            const url = appendQuery(new URL(`${base}${publicWidgetPath(path)}`), query);
+            const url = withControlToken(appendQuery(new URL(`${base}${publicWidgetPath(path)}`), query), path);
             debug('generated_url', {
                 route: normalizePath(path),
                 baseHost: new URL(base).host,
@@ -233,6 +268,11 @@
         normalizePath,
         publicWidgetPath,
         publicWidgetId,
+        controlWidgetType,
+        // Distinct from controlToken() below, which is the local session's
+        // short-lived token: this is the permanent hosted dock token.
+        hostedControlToken: (widgetType) => controlTokens[widgetType] || null,
+        reloadControlTokens: loadControlTokens,
         activeRuntimeId,
         userPrefix,
         apiPrefix,
