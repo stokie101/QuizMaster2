@@ -75,8 +75,12 @@ class MessageManager {
         this.messagePool = [];
     }
 
+    applyLimit() {
+        if (this.container) this._cleanup();
+    }
+
     _cleanup() {
-        const limit = Number.POSITIVE_INFINITY;
+        const limit = this.limitCheckbox?.checked ? CONFIG.CHAT_LIMIT_STRICT : CONFIG.CHAT_LIMIT_LOOSE;
         while (this.container.children.length > limit) {
             const node = this.container.firstChild;
             this.container.removeChild(node);
@@ -136,8 +140,7 @@ class TikTokTabManager {
         setTimeout(() => this._checkStatus(), 500);
         setInterval(() => this._checkStatus(), 2000);
         this.isInitialized = true;
-        this._log("TikTok panel ready", "success");
-        this._systemChat("TikTok panel ready. Link your TikTok account, then connect live chat.");
+        this._systemChat("TikTok panel ready. Link your TikTok account, or connect a username manually.");
     }
 
     _bindUI() {
@@ -177,8 +180,11 @@ class TikTokTabManager {
         this.ui.officialStatusBtn?.addEventListener("click", () => this.refreshLinkedAccount());
         this.ui.usernameInput?.addEventListener("keypress", (e) => { if (e.key === "Enter") this.connectManualFallback(); });
         this.ui.toggleChat?.addEventListener("change", () => {
-            this._systemChat(this.ui.toggleChat.checked ? "Chat feed shown" : "Chat feed hidden, but messages still stay logged");
+            const shown = this.ui.toggleChat.checked;
+            this.ui.scrollArea?.classList.toggle("hidden", !shown);
+            this._systemChat(shown ? "Chat feed shown" : "Chat feed hidden, but messages still stay logged");
         });
+        this.ui.limitChat?.addEventListener("change", () => this.messageManager?.applyLimit());
     }
 
     _setupSocketListeners() {
@@ -248,15 +254,17 @@ class TikTokTabManager {
     }
 
     async connectLinkedLiveChat() {
-        const username = this.linkedAccount?.username || this.ui.linkedUsernameInput?.value?.trim();
+        const username = String(this.linkedAccount?.username || this.ui.linkedUsernameInput?.value || "").trim().replace(/^@/, "");
         if (!username) {
-            alert("Connect and refresh your linked TikTok account first.");
+            this._setOfficialLoginStatus("Connect and refresh your linked TikTok account first.");
             return;
         }
         this._setUiState("connecting", `Connecting live chat for @${username}...`);
         this._systemChat(`Connecting live chat for @${username}...`);
         try {
-            const res = await this._apiCall("POST", "/api/tiktok/connect", {});
+            // The linked route resolves the username from the auth broker, so the
+            // desktop never has to trust a username typed into the page.
+            const res = await this._apiCall("POST", "/api/tiktok/connect-linked", {});
             if (!res.success) throw new Error(res.error || "Failed to start connection");
             const connectedUsername = res.username || username;
             this._log(`Live chat connect requested for linked account @${connectedUsername}`, "success");
@@ -267,8 +275,12 @@ class TikTokTabManager {
     }
 
     async connectManualFallback() {
-        const username = this.ui.usernameInput?.value?.trim();
-        if (!username) { alert("Enter username"); return; }
+        const username = String(this.ui.usernameInput?.value || "").trim().replace(/^@/, "");
+        if (!username) {
+            this._systemChat("Enter a TikTok username to connect manually.");
+            this.ui.usernameInput?.focus();
+            return;
+        }
         this._setUiState("connecting", `Connecting manual fallback @${username}...`);
         this._systemChat(`Manual fallback connecting to @${username}...`);
         try {

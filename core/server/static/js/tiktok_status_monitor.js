@@ -118,7 +118,9 @@
     lastConnectAttemptAt = now;
     lastConnectAttemptUsername = username;
     try {
-      await jsonPost("/api/tiktok/connect", {});
+      // The linked route resolves the username from the auth broker; the plain
+      // connect route requires one in the body and would just 400 here.
+      await jsonPost("/api/tiktok/connect-linked", {});
     } catch (_) {
       // Normal while the creator is not live yet. Keep waiting quietly.
     } finally {

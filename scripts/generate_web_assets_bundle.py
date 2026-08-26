@@ -20,6 +20,8 @@ OUT_FILE = OUT_DIR / "web_assets_bundle.py"
 ASSET_ROOTS = [
     ROOT / "core" / "assets",
     ROOT / "core" / "server" / "static",
+    ROOT / "core" / "server" / "obs" / "html",
+    ROOT / "core" / "server" / "obs" / "js",
     ROOT / "core" / "server" / "themes",
     ROOT / "core" / "server" / "overlays",
     ROOT / "core" / "quiz" / "html",

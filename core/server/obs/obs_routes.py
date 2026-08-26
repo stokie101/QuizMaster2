@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.server.obs.obs_handler import OBSHandler
 from core.server.obs.obs_manager import OBSManager
+from core.utils.embedded_web_assets import embedded_asset_response
 
 logger = logging.getLogger(__name__)
 
@@ -21,19 +22,38 @@ def register_obs_routes(app: FastAPI, sio, server):
     if js_dir.exists():
         app.mount("/obs/js", StaticFiles(directory=str(js_dir)), name="obs_js")
 
+    def _serve_obs(relative_path: str, disk_path, media_type: str, missing: str):
+        # Release builds ship this frontend inside the embedded bundle; the
+        # loose folders only exist when running from source.
+        embedded = embedded_asset_response(relative_path, media_type)
+        if embedded is not None:
+            return embedded
+        if disk_path.exists():
+            return FileResponse(disk_path, media_type=media_type)
+        raise HTTPException(404, missing)
+
+    @app.get('/obs/js/{script_name}')
+    async def obs_js_asset(script_name: str):
+        if not script_name.endswith('.js') or '/' in script_name:
+            raise HTTPException(404, 'OBS script not found')
+        return _serve_obs(
+            f'core/server/obs/js/{script_name}', js_dir / script_name,
+            'application/javascript', 'OBS script not found',
+        )
+
     @app.get('/obs/tab')
     async def obs_tab_page():
-        path = html_dir / 'obs_tab.html'
-        if not path.exists():
-            raise HTTPException(404, 'OBS tab not found')
-        return FileResponse(path)
+        return _serve_obs(
+            'core/server/obs/html/obs_tab.html', html_dir / 'obs_tab.html',
+            'text/html', 'OBS tab not found',
+        )
 
     @app.get('/obs/control')
     async def obs_control_page():
-        path = html_dir / 'obs_control.html'
-        if not path.exists():
-            raise HTTPException(404, 'OBS control not found')
-        return FileResponse(path)
+        return _serve_obs(
+            'core/server/obs/html/obs_control.html', html_dir / 'obs_control.html',
+            'text/html', 'OBS control not found',
+        )
 
     @app.get('/api/obs/config')
     async def get_obs_config():

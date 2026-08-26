@@ -59,11 +59,36 @@
 
   const isSocketLoaded = () => typeof window.io === "function";
 
+  // The bundled copy ships with the app, so overlays and the app windows keep
+  // working with no internet access. The CDN stays as a fallback only.
+  const SOCKET_IO_SOURCES = [
+    "/static/js/socket.io.min.js",
+    "https://cdn.socket.io/4.7.5/socket.io.min.js",
+  ];
+
   async function phase1() {
     log.phase("Socket.IO");
-    if (!isSocketLoaded()) {
-      await loadScript("https://cdn.socket.io/4.7.5/socket.io.min.js");
-      await waitFor(isSocketLoaded, { description: "Socket.IO" });
+    if (isSocketLoaded()) {
+      BootstrapState.services.socketIO = window.io;
+      return;
+    }
+    let lastError = null;
+    for (const src of SOCKET_IO_SOURCES) {
+      try {
+        await loadScript(src);
+        await waitFor(isSocketLoaded, { timeout: 2000, description: "Socket.IO" });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        log.warn(`Socket.IO source unavailable: ${src}`, error);
+      }
+    }
+    // Without Socket.IO the pages still work over the REST bridge and polling,
+    // so a missing library must not abort the remaining bootstrap phases.
+    if (lastError) {
+      log.warn("Socket.IO unavailable; continuing without live signals", lastError);
+      return;
     }
     BootstrapState.services.socketIO = window.io;
   }

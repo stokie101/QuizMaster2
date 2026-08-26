@@ -111,6 +111,15 @@ def register_settings_routes(app, server):
             await server.socketio.emit('settings_changed', data, room="default")
             await server.socketio.emit('chat_overlay:config_updated', data)
 
+            # Mirror through the signal bus as well: it reaches the account
+            # widget rooms (the OBS quiz dock lives there), so a change made in
+            # the app shows up in the dock and vice versa.
+            try:
+                server.emit_signal_ws("settings_changed", data)
+                server.emit_signal_ws("config_updated", {"settings": data})
+            except Exception as exc:
+                logger.warning("settings_signal_broadcast_failed: %s", exc)
+
             if "TIMER" in data:
                 if "duration" in data["TIMER"]:
                     await server.socketio.emit('timer_duration_changed', int(data["TIMER"]["duration"]), room="default")

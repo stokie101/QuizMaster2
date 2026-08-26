@@ -137,12 +137,33 @@
         return activeBaseUrl();
     }
 
+    function isHostedWidgetHost() {
+        try {
+            return window.location.host === new URL(activeBaseUrl()).host;
+        } catch (_) {
+            return false;
+        }
+    }
+
     function apiPrefix() {
+        // Scoped /u/<id> routes are what the public widget host requires: it
+        // rejects unscoped control calls. The desktop bridge serves the same
+        // endpoints unscoped, so an in-app page must not add the prefix.
+        const fromPath = publicWidgetIdFromPath();
+        if (fromPath) return `/u/${encodeURIComponent(fromPath)}`;
+        if (!isHostedWidgetHost()) return '';
         const id = activeRuntimeId();
         return id ? `/u/${encodeURIComponent(id)}` : '';
     }
 
     function apiBaseUrl() {
+        // Whoever served this page also owns the API: the desktop bridge
+        // directly for the app windows, and the same bridge behind the tunnel
+        // for hosted widgets. Staying on the page origin keeps the in-app
+        // settings pages working without a round trip through the public host.
+        if (/^https?:$/.test(window.location.protocol)) {
+            return trimTrailingSlash(window.location.origin);
+        }
         const current = config();
         const configuredApiBase = current.API_BASE_URL || current.ACTIVE_BASE_URL || current.WIDGETS_BASE_URL || HOSTED_WIDGETS_BASE_URL;
         return trimTrailingSlash(configuredApiBase);
@@ -206,6 +227,7 @@
         userPrefix,
         apiPrefix,
         apiBaseUrl,
+        isHostedWidgetHost,
         sessionId,
         sessionQuery,
         sessionApiUrl,

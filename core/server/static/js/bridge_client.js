@@ -59,6 +59,12 @@ if (!window.HTTPBridgeClient) {
     }
 
     _resolveBaseUrl(baseUrl) {
+      // The page origin already is the bridge: localhost for the desktop app
+      // windows, and the public widget host (tunnelled to the same bridge) for
+      // browser sources. Using it keeps the app working without the tunnel.
+      if (/^https?:$/.test(window.location.protocol)) {
+        return String(window.location.origin).replace(/\/$/, "");
+      }
       const urls = window.QuizMasterURLs;
       const configuredLocalBase = urls?.activeBaseUrl?.() || urls?.config?.().LOCAL_BASE_URL;
       const candidate = configuredLocalBase || baseUrl || window.location.origin;
