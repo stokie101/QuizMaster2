@@ -1,8 +1,9 @@
 console.log("=== TIKTOK TAB MODULE LOADED ===");
 
 const CONFIG = {
-    CHAT_LIMIT_STRICT: 50,
-    CHAT_LIMIT_LOOSE: 500,
+    // Older messages are dropped from the DOM only; scoring reads the socket
+    // feed, so the visible history never affects a running quiz.
+    CHAT_HISTORY_LIMIT: 300,
     AVATAR_CACHE_SIZE: 100,
     API_BASE: window.location.origin
 };
@@ -39,10 +40,9 @@ class AvatarCache {
 }
 
 class MessageManager {
-    constructor(container, scrollArea, limitCheckbox) {
+    constructor(container, scrollArea) {
         this.container = container;
         this.scrollArea = scrollArea;
-        this.limitCheckbox = limitCheckbox;
         this.messagePool = [];
     }
 
@@ -75,12 +75,8 @@ class MessageManager {
         this.messagePool = [];
     }
 
-    applyLimit() {
-        if (this.container) this._cleanup();
-    }
-
     _cleanup() {
-        const limit = this.limitCheckbox?.checked ? CONFIG.CHAT_LIMIT_STRICT : CONFIG.CHAT_LIMIT_LOOSE;
+        const limit = CONFIG.CHAT_HISTORY_LIMIT;
         while (this.container.children.length > limit) {
             const node = this.container.firstChild;
             this.container.removeChild(node);
@@ -119,7 +115,6 @@ class TikTokTabManager {
         this.apiBase = (window.BRIDGE_ORIGIN || CONFIG.API_BASE).replace(/\/$/, "");
         this.ui = {};
         this.lastState = "disconnected";
-        this.linkedAccount = null;
     }
 
     async init() {
@@ -130,26 +125,23 @@ class TikTokTabManager {
             return;
         }
         this._bindUI();
-        this.messageManager = new MessageManager(this.ui.chatContainer, this.ui.scrollArea, this.ui.limitChat);
+        this.messageManager = new MessageManager(this.ui.chatContainer, this.ui.scrollArea);
         this.wsClient = window.httpBridgeClient || new HTTPBridgeClient(this.apiBase);
         if (!this.wsClient.isWebSocketConnected()) this.wsClient.connectWebSocket();
         this._setupDOMListeners();
         this._setupSocketListeners();
-        setTimeout(() => this.refreshLinkedAccount(), 400);
         setTimeout(() => this._loadSavedUsernameWithRetry(), 500);
         setTimeout(() => this._checkStatus(), 500);
         setInterval(() => this._checkStatus(), 2000);
         this.isInitialized = true;
-        this._systemChat("TikTok panel ready. Link your TikTok account, or connect a username manually.");
+        this._systemChat("TikTok panel ready. Enter a username and press Connect.");
     }
 
     _bindUI() {
         this.ui = {
-            connectBtn: document.getElementById("connectBtn"),
             manualConnectBtn: document.getElementById("manualConnectBtn"),
             disconnectBtn: document.getElementById("disconnectBtn"),
             usernameInput: document.getElementById("usernameInput"),
-            linkedUsernameInput: document.getElementById("linkedUsernameInput"),
             statusIndicator: document.getElementById("tiktokStatus"),
             statusText: document.getElementById("statusText"),
             headerStatusText: document.getElementById("headerStatusText"),
@@ -157,34 +149,30 @@ class TikTokTabManager {
             chatContainer: document.getElementById("chatContainer"),
             scrollArea: document.getElementById("chatScrollArea"),
             toggleChat: document.getElementById("toggleChat"),
-            limitChat: document.getElementById("limitChat"),
             clearChat: document.getElementById("clearChatBtn"),
-            officialLoginBtn: document.getElementById("officialLoginBtn"),
-            officialStatusBtn: document.getElementById("officialStatusBtn"),
-            officialLoginStatus: document.getElementById("officialLoginStatus"),
-            linkedAccountCard: document.getElementById("linkedAccountCard"),
-            linkedAvatar: document.getElementById("linkedAvatar"),
-            linkedAvatarFallback: document.getElementById("linkedAvatarFallback"),
-            linkedDisplayName: document.getElementById("linkedDisplayName"),
-            linkedUsername: document.getElementById("linkedUsername"),
-            linkedStats: document.getElementById("linkedStats")
+            alert: document.getElementById("tiktokAlert"),
+            alertTitle: document.getElementById("tiktokAlertTitle"),
+            alertMessage: document.getElementById("tiktokAlertMessage"),
+            alertHint: document.getElementById("tiktokAlertHint"),
+            alertClose: document.getElementById("tiktokAlertClose")
         };
     }
 
     _setupDOMListeners() {
-        this.ui.connectBtn?.addEventListener("click", () => this.connectLinkedLiveChat());
-        this.ui.manualConnectBtn?.addEventListener("click", () => this.connectManualFallback());
-        this.ui.disconnectBtn?.addEventListener("click", () => this.disconnect());
+        const busy = (button, action) => window.QuizMasterUI?.withBusy
+            ? window.QuizMasterUI.withBusy(button, action)
+            : action();
+        this.ui.manualConnectBtn?.addEventListener("click", () => busy(this.ui.manualConnectBtn, () => this.connect()));
+        this.ui.disconnectBtn?.addEventListener("click", () => busy(this.ui.disconnectBtn, () => this.disconnect()));
         this.ui.clearChat?.addEventListener("click", () => this.clearChat());
-        this.ui.officialLoginBtn?.addEventListener("click", () => this.openOfficialLogin());
-        this.ui.officialStatusBtn?.addEventListener("click", () => this.refreshLinkedAccount());
-        this.ui.usernameInput?.addEventListener("keypress", (e) => { if (e.key === "Enter") this.connectManualFallback(); });
+        this.ui.alertClose?.addEventListener("click", () => this.hideAlert());
+        this.ui.usernameInput?.addEventListener("input", () => this.hideAlert());
+        this.ui.usernameInput?.addEventListener("keypress", (e) => { if (e.key === "Enter") this.connect(); });
         this.ui.toggleChat?.addEventListener("change", () => {
             const shown = this.ui.toggleChat.checked;
             this.ui.scrollArea?.classList.toggle("hidden", !shown);
             this._systemChat(shown ? "Chat feed shown" : "Chat feed hidden, but messages still stay logged");
         });
-        this.ui.limitChat?.addEventListener("change", () => this.messageManager?.applyLimit());
     }
 
     _setupSocketListeners() {
@@ -216,86 +204,118 @@ class TikTokTabManager {
         }
     }
 
-    async openOfficialLogin() {
-        try {
-            this._setOfficialLoginStatus("Opening QuizMaster TikTok account login in your browser...");
-            const res = await this._apiCall("POST", "/api/tiktok/official-login/open");
-            const broker = res.broker_url || "https://auth.quizmaster.online";
-            this._setOfficialLoginStatus(`Browser opened via ${broker}. Complete TikTok login, then click Refresh Linked Account.`);
-            this._log(`Official TikTok login opened via ${broker}`, "info");
-            setTimeout(() => this.refreshLinkedAccount(), 3000);
-        } catch (e) {
-            this._setOfficialLoginStatus(`Official TikTok login failed: ${e.message}`);
-        }
-    }
-
-    async refreshLinkedAccount() {
-        try {
-            this._setOfficialLoginStatus("Checking linked TikTok account...");
-            const snapshot = await this._apiCall("GET", "/api/tiktok/account-snapshot");
-            this._applyLinkedAccount(snapshot);
-            if (snapshot.available && snapshot.username) {
-                this._setOfficialLoginStatus(`Linked account ready: @${snapshot.username}`);
-                this._log(`Linked TikTok account: @${snapshot.username}`, "success");
-            } else if (snapshot.connected) {
-                this._setOfficialLoginStatus("TikTok login is connected, but account snapshot is not available yet. Cloudflare broker/account-stats may still need setup.");
-                this._log("TikTok login connected but account snapshot unavailable", "info");
-            } else {
-                this._setOfficialLoginStatus("No linked TikTok account found yet. Connect TikTok Account first.");
-            }
-        } catch (e) {
-            this._clearLinkedAccount();
-            this._setOfficialLoginStatus(`Linked TikTok account unavailable: ${e.message}. This is expected until the QuizMaster Cloudflare broker is deployed.`);
-        }
-    }
-
-    async checkOfficialLoginStatus() {
-        return this.refreshLinkedAccount();
-    }
-
-    async connectLinkedLiveChat() {
-        const username = String(this.linkedAccount?.username || this.ui.linkedUsernameInput?.value || "").trim().replace(/^@/, "");
-        if (!username) {
-            this._setOfficialLoginStatus("Connect and refresh your linked TikTok account first.");
-            return;
-        }
-        this._setUiState("connecting", `Connecting live chat for @${username}...`);
-        this._systemChat(`Connecting live chat for @${username}...`);
-        try {
-            // The linked route resolves the username from the auth broker, so the
-            // desktop never has to trust a username typed into the page.
-            const res = await this._apiCall("POST", "/api/tiktok/connect-linked", {});
-            if (!res.success) throw new Error(res.error || "Failed to start connection");
-            const connectedUsername = res.username || username;
-            this._log(`Live chat connect requested for linked account @${connectedUsername}`, "success");
-        } catch (e) {
-            this._setUiState("error", e.message);
-            this._systemChat(`Live chat connection failed: ${e.message}`);
-        }
-    }
-
-    async connectManualFallback() {
+    async connect() {
         const username = String(this.ui.usernameInput?.value || "").trim().replace(/^@/, "");
         if (!username) {
-            this._systemChat("Enter a TikTok username to connect manually.");
+            this.showAlert("Enter a username", "Type the TikTok username whose LIVE you want to read.",
+                "It is the @name on their profile \u2014 you can leave the @ off.");
             this.ui.usernameInput?.focus();
             return;
         }
-        this._setUiState("connecting", `Connecting manual fallback @${username}...`);
-        this._systemChat(`Manual fallback connecting to @${username}...`);
+
+        this.hideAlert();
+        this._lastReportedError = "";
+        this._setUiState("connecting", `Connecting to @${username}\u2026`);
+        this._systemChat(`Connecting to @${username}\u2026`);
+
         try {
             await fetch(`${this.apiBase}/api/settings`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ "TikTokLive": { "last_username": username } })
             });
-            const res = await this._apiCall("POST", "/api/tiktok/connect", { username, manual_fallback: true });
-            if (!res.success) throw new Error(res.error || "Failed to start connection");
-            this._log(`Manual fallback connect requested for @${username}`, "success");
+            const res = await this._apiCall("POST", "/api/tiktok/connect", { username });
+            if (!res.success) throw new Error(res.error || res.message || "The connection could not be started.");
+            this._log(`Connect requested for @${username}`, "success");
+            // The backend hands off to a worker, so success here only means the
+            // attempt started. Say so if nothing has happened a few seconds on.
+            this._watchConnectProgress(username);
         } catch (e) {
             this._setUiState("error", e.message);
-            this._systemChat(`Manual fallback failed: ${e.message}`);
+            this.reportError(e.message, username);
         }
+    }
+
+    _watchConnectProgress(username) {
+        clearTimeout(this._connectWatchdog);
+        this._connectWatchdog = setTimeout(() => {
+            if (this.lastState === "connected" || this.lastState === "error") return;
+            this.showAlert(
+                `Still trying to reach @${username}`,
+                "TikTok has not accepted the connection yet.",
+                "This nearly always means the creator is not live right now. QuizMaster keeps trying \u2014 start their LIVE, or check the username spelling."
+            );
+        }, 12000);
+    }
+
+    // Backend messages are technical. Map the ones we know to plain language,
+    // and always show something rather than leaving the page silent.
+    _friendlyError(raw, username) {
+        const text = String(raw || "").trim();
+        const lower = text.toLowerCase();
+        const who = username ? `@${username}` : "that account";
+
+        if (!text) {
+            return { title: "Could not connect", message: "TikTok refused the connection and did not say why.",
+                hint: `Check that ${who} is spelled correctly and is live right now.` };
+        }
+        if (lower.includes("user_not_found") || lower.includes("not found") || lower.includes("does not exist")) {
+            return { title: "That username does not exist", message: `TikTok has no account called ${who}.`,
+                hint: "Check the spelling. Use the @name from their profile, without the @." };
+        }
+        if (lower.includes("not live") || lower.includes("offline") || lower.includes("live has ended") || lower.includes("userofflineerror")) {
+            return { title: `${who} is not live`, message: "Chat can only be read while a LIVE is running.",
+                hint: "Start the LIVE on TikTok, then connect again." };
+        }
+        if (lower.includes("library not available") || lower.includes("tiktoklive")) {
+            return { title: "TikTok chat library missing", message: "The component that reads TikTok chat did not load.",
+                hint: "Restart QuizMaster. If it keeps happening, reinstall so the bundled library is restored." };
+        }
+        if (lower.includes("rate") && lower.includes("limit")) {
+            return { title: "TikTok is rate limiting us", message: "Too many connection attempts in a short time.",
+                hint: "Wait a couple of minutes before trying again." };
+        }
+        if (lower.includes("timeout") || lower.includes("timed out")) {
+            return { title: "TikTok did not respond", message: "The connection attempt timed out.",
+                hint: "Check your internet connection, then try again." };
+        }
+        if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("connection refused")) {
+            return { title: "Cannot reach QuizMaster", message: "The page could not talk to the QuizMaster app.",
+                hint: "Make sure QuizMaster is still running, then reload this page." };
+        }
+        if (lower.includes("sign") || lower.includes("captcha")) {
+            return { title: "TikTok asked for a verification", message: text,
+                hint: "TikTok sometimes challenges automated connections. Wait a moment and try again." };
+        }
+        return { title: "Could not connect", message: text,
+            hint: `Check that ${who} is live and the username is spelled correctly.` };
+    }
+
+    reportError(raw, username) {
+        const text = String(raw || "").trim();
+        if (text && text === this._lastReportedError) return;
+        this._lastReportedError = text;
+        clearTimeout(this._connectWatchdog);
+        const friendly = this._friendlyError(text, username || this.ui.usernameInput?.value?.trim().replace(/^@/, ""));
+        this.showAlert(friendly.title, friendly.message, friendly.hint);
+        this._log(text || friendly.message, "error");
+        this._systemChat(friendly.title + " \u2014 " + friendly.message);
+    }
+
+    showAlert(title, message, hint) {
+        const ui = this.ui;
+        if (!ui.alert) return;
+        if (ui.alertTitle) ui.alertTitle.textContent = title;
+        if (ui.alertMessage) ui.alertMessage.textContent = message;
+        if (ui.alertHint) {
+            ui.alertHint.textContent = hint || "";
+            ui.alertHint.hidden = !hint;
+        }
+        ui.alert.hidden = false;
+    }
+
+    hideAlert() {
+        if (this.ui.alert) this.ui.alert.hidden = true;
     }
 
     async _loadSavedUsernameWithRetry(attempt = 0) {
@@ -320,55 +340,6 @@ class TikTokTabManager {
         if (this.ui.usernameInput) this.ui.usernameInput.value = value;
     }
 
-    _applyLinkedAccount(snapshot) {
-        const available = !!(snapshot && snapshot.available && snapshot.username);
-        this.linkedAccount = available ? snapshot : null;
-        if (this.ui.linkedAccountCard) this.ui.linkedAccountCard.hidden = false;
-        const username = available ? snapshot.username : "";
-        const displayName = available ? (snapshot.display_name || snapshot.username) : "No TikTok account linked";
-        if (this.ui.linkedDisplayName) this.ui.linkedDisplayName.textContent = displayName;
-        if (this.ui.linkedUsername) this.ui.linkedUsername.textContent = available ? `@${username}` : "Use Connect TikTok Account first.";
-        if (this.ui.linkedStats) {
-            const parts = [];
-            if (snapshot?.followers !== null && snapshot?.followers !== undefined) parts.push(`${Number(snapshot.followers).toLocaleString()} followers`);
-            if (snapshot?.verified) parts.push("verified");
-            if (snapshot?.updated_at) parts.push(`updated ${snapshot.updated_at}`);
-            this.ui.linkedStats.textContent = parts.length ? parts.join(" · ") : (snapshot?.connected ? "Login connected; account stats unavailable." : "Account snapshot unavailable.");
-        }
-        if (this.ui.linkedUsernameInput) this.ui.linkedUsernameInput.value = available ? `@${username}` : "";
-        if (this.ui.connectBtn) this.ui.connectBtn.disabled = !available;
-        if (this.ui.linkedAvatar && this.ui.linkedAvatarFallback) {
-            if (available && snapshot.avatar_url) {
-                this.ui.linkedAvatar.src = snapshot.avatar_url;
-                this.ui.linkedAvatar.hidden = false;
-                this.ui.linkedAvatarFallback.hidden = true;
-            } else {
-                this.ui.linkedAvatar.hidden = true;
-                this.ui.linkedAvatarFallback.hidden = false;
-                this.ui.linkedAvatarFallback.textContent = available ? username.slice(0, 1).toUpperCase() : "@";
-            }
-        }
-    }
-
-    _clearLinkedAccount() {
-        this.linkedAccount = null;
-        if (this.ui.linkedAccountCard) this.ui.linkedAccountCard.hidden = false;
-        if (this.ui.linkedDisplayName) this.ui.linkedDisplayName.textContent = "No TikTok account linked";
-        if (this.ui.linkedUsername) this.ui.linkedUsername.textContent = "Use Connect TikTok Account first.";
-        if (this.ui.linkedStats) this.ui.linkedStats.textContent = "Account snapshot unavailable.";
-        if (this.ui.linkedUsernameInput) this.ui.linkedUsernameInput.value = "";
-        if (this.ui.connectBtn) this.ui.connectBtn.disabled = true;
-        if (this.ui.linkedAvatar) this.ui.linkedAvatar.hidden = true;
-        if (this.ui.linkedAvatarFallback) {
-            this.ui.linkedAvatarFallback.hidden = false;
-            this.ui.linkedAvatarFallback.textContent = "@";
-        }
-    }
-
-    _setOfficialLoginStatus(message) {
-        if (this.ui.officialLoginStatus) this.ui.officialLoginStatus.textContent = message;
-    }
-
     async disconnect() {
         try {
             await this._apiCall("POST", "/api/tiktok/disconnect");
@@ -382,14 +353,25 @@ class TikTokTabManager {
     async _checkStatus() {
         try {
             const res = await this._apiCall("GET", "/api/tiktok/status");
-            if (res.success && res.connected) {
+            if (!res.success) return;
+            if (res.connected) {
+                clearTimeout(this._connectWatchdog);
+                this._lastReportedError = "";
+                this.hideAlert();
                 this._setUiState("connected", `Connected to @${res.username || "live"}`);
-                if (this.ui.linkedUsernameInput && res.username) this.ui.linkedUsernameInput.value = `@${res.username}`;
-            } else if (res.success) {
-                this._setUiState("disconnected", "Disconnected");
+                return;
             }
+            // Polling is the safety net: a failure raised while the socket was
+            // down still reaches the user through the stored last_error.
+            if (res.last_error) {
+                this._setUiState("error", res.last_error);
+                this.reportError(res.last_error);
+                return;
+            }
+            if (this.lastState !== "connecting") this._setUiState("disconnected", "Disconnected");
         } catch (e) {
-            this._setUiState("error", "Status check failed");
+            this._setUiState("error", e.message);
+            this.reportError(e.message);
         }
     }
 
@@ -407,8 +389,16 @@ class TikTokTabManager {
         const payload = this._unwrap(data) || {};
         const state = payload.state || (payload.connected ? "connected" : "disconnected");
         const message = payload.message || state;
+        const previous = this.lastState;
         this._setUiState(state, message);
-        if (state !== this.lastState) {
+        if (state === "error") {
+            this.reportError(message, payload.username);
+        } else if (state === "connected") {
+            clearTimeout(this._connectWatchdog);
+            this._lastReportedError = "";
+            this.hideAlert();
+        }
+        if (state !== previous) {
             this.lastState = state;
             this._systemChat(`TikTok status: ${message}`);
         }
@@ -438,16 +428,19 @@ class TikTokTabManager {
 
     _setUiState(state, message) {
         const cls = String(state || "disconnected").toLowerCase();
+        this.lastState = cls;
+        // The status line is glanceable, so it never shows raw backend text.
+        const label = cls === "error"
+            ? this._friendlyError(message, this.ui.usernameInput?.value?.trim().replace(/^@/, "")).title
+            : (message || state);
         if (this.ui.statusIndicator) this.ui.statusIndicator.className = `status-indicator ${cls}`;
-        if (this.ui.statusText) this.ui.statusText.textContent = message || state;
+        if (this.ui.statusText) this.ui.statusText.textContent = label;
         if (this.ui.headerStatusText) {
-            this.ui.headerStatusText.textContent = message || state;
+            this.ui.headerStatusText.textContent = label;
             this.ui.headerStatusText.className = `pill ${cls === "connected" ? "success" : cls === "connecting" ? "warning" : cls === "error" ? "danger" : "danger"}`;
         }
         const isConnected = cls === "connected";
         const isConnecting = cls === "connecting";
-        const hasLinkedAccount = !!(this.linkedAccount && this.linkedAccount.username);
-        if (this.ui.connectBtn) this.ui.connectBtn.disabled = isConnected || isConnecting || !hasLinkedAccount;
         if (this.ui.manualConnectBtn) this.ui.manualConnectBtn.disabled = isConnected || isConnecting;
         if (this.ui.disconnectBtn) this.ui.disconnectBtn.disabled = !isConnected;
         if (this.ui.usernameInput) this.ui.usernameInput.disabled = isConnecting;

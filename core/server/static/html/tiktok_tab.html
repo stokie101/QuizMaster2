@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
     <link href="/styles.css" rel="stylesheet"/>
     <link href="/tiktok.css" rel="stylesheet"/>
+    <link href="/interactions.css" rel="stylesheet">
     <script src="/static/js/quizmaster_url_config.js"></script>
 </head>
 <body class="page-surface tiktok-page">
@@ -14,7 +15,7 @@
     <div>
       <p class="eyebrow">TikTok LIVE</p>
       <h1>TikTok Connector</h1>
-      <p class="hero-copy">Link your TikTok account or connect a username manually, then read live chat answers straight into the quiz.</p>
+      <p class="hero-copy">Enter the TikTok username that is live, connect, and chat answers feed straight into the quiz.</p>
     </div>
     <span id="headerStatusText" class="pill danger">Disconnected</span>
   </header>
@@ -24,56 +25,43 @@
     <span id="statusText">Disconnected</span>
   </div>
 
+  <div id="tiktokAlert" class="tt-alert" role="alert" hidden>
+    <div class="tt-alert-body">
+      <strong id="tiktokAlertTitle"></strong>
+      <p id="tiktokAlertMessage"></p>
+      <p id="tiktokAlertHint" class="tt-alert-hint"></p>
+    </div>
+    <button type="button" class="tt-alert-close" id="tiktokAlertClose" aria-label="Dismiss">✕</button>
+  </div>
+
   <section class="two-column">
-    <article class="card" id="linkedAccountCard">
-      <div class="card-head"><h2>TikTok account</h2><span class="pill neutral">Official login</span></div>
-      <p class="muted">Sign in through the QuizMaster TikTok login to link your account. Live chat then connects to that account with no username to type.</p>
+    <article class="card">
+      <div class="card-head"><h2>Connect to TikTok LIVE</h2><span class="pill neutral">Username</span></div>
+      <p class="muted">Type the TikTok username whose LIVE you want to read. The creator has to be live at the time you connect.</p>
 
-      <div class="tt-account">
-        <img id="linkedAvatar" class="tt-avatar" alt="TikTok avatar" hidden>
-        <div id="linkedAvatarFallback" class="tt-avatar tt-avatar-fallback">@</div>
-        <div class="tt-account-copy">
-          <div id="linkedDisplayName" class="tt-account-name">No TikTok account linked</div>
-          <div id="linkedUsername" class="tt-account-user">Use Connect TikTok Account first.</div>
-          <div id="linkedStats" class="tt-account-stats">Account snapshot unavailable.</div>
-        </div>
-      </div>
+      <label class="settings-label" for="usernameInput">TikTok username</label>
+      <input id="usernameInput" class="settings-input" type="text" placeholder="username (without @)" autocomplete="off" spellcheck="false">
+      <p class="muted tt-hint">The last username you used is remembered and filled in for you.</p>
 
       <div class="tt-actions">
-        <button id="officialLoginBtn" class="button" type="button">Connect TikTok account</button>
-        <button id="officialStatusBtn" class="button secondary" type="button">Refresh linked account</button>
-      </div>
-      <p id="officialLoginStatus" class="muted tt-login-status">Checking linked TikTok account…</p>
-
-      <label class="settings-label" for="linkedUsernameInput">Linked username</label>
-      <input id="linkedUsernameInput" class="settings-input" type="text" readonly placeholder="Not linked yet">
-      <div class="tt-actions">
-        <button id="connectBtn" class="button" type="button" disabled>Connect live chat</button>
+        <button id="manualConnectBtn" class="button" type="button">Connect</button>
+        <button id="disconnectBtn" class="button secondary" type="button" disabled>Disconnect</button>
       </div>
     </article>
 
     <article class="card">
-      <div class="card-head"><h2>Manual login</h2><span class="pill neutral">Username</span></div>
-      <p class="muted">Connect to any TikTok LIVE by username. Use this when you have not linked an account, or to read a different creator's chat.</p>
-
-      <label class="settings-label" for="usernameInput">TikTok username</label>
-      <input id="usernameInput" class="settings-input" type="text" placeholder="username (without @)" autocomplete="off" spellcheck="false">
-      <p class="muted tt-hint">The creator must be live for chat to connect. The last username you used is remembered.</p>
-
-      <div class="tt-actions">
-        <button id="manualConnectBtn" class="button" type="button">Connect manually</button>
-        <button id="disconnectBtn" class="button secondary" type="button" disabled>Disconnect</button>
-      </div>
+      <div class="card-head"><h2>Connection log</h2></div>
+      <p class="muted">Everything the connector does, newest at the bottom.</p>
+      <div id="connectionLog" class="tt-log"></div>
     </article>
   </section>
 
-  <section class="two-column tt-lower">
+  <section class="tt-lower">
     <article class="card tt-chat-card">
       <div class="card-head">
         <h2>Live chat</h2>
         <div class="tt-chat-controls">
           <label class="tt-check"><input id="toggleChat" type="checkbox" checked> Show feed</label>
-          <label class="tt-check"><input id="limitChat" type="checkbox" checked> Limit history</label>
           <button id="clearChatBtn" class="button secondary tt-inline-btn" type="button">Clear</button>
         </div>
       </div>
@@ -81,13 +69,9 @@
         <div id="chatContainer" class="tt-chat"></div>
       </div>
     </article>
-
-    <article class="card">
-      <div class="card-head"><h2>Connection log</h2></div>
-      <div id="connectionLog" class="tt-log"></div>
-    </article>
   </section>
 
   <script src="/bootstrap.js"></script>
+  <script src="/qm_interactions.js"></script>
 </body>
 </html>

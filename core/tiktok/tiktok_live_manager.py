@@ -51,6 +51,7 @@ class TikTokLiveManager(QObject):
         self._username: Optional[str] = None
         self._is_connected = False
         self._connection_attempted = False
+        self._last_error = ""
         self._viewer_count = 0
         self._exact_live_follower_count: Optional[int] = None
         self._manual_disconnect = False
@@ -204,6 +205,7 @@ class TikTokLiveManager(QObject):
         self._manual_disconnect = False
         self._connection_attempted = True
         self._exact_live_follower_count = None
+        self._last_error = ""
 
         try:
             from core.server.session_identity import RuntimeSessionIdentity
@@ -572,6 +574,7 @@ class TikTokLiveManager(QObject):
             return
         user_friendly_msg = str(error_msg)
         self._is_connected = False
+        self._last_error = user_friendly_msg
         try:
             self.connection_status_changed.emit(False, user_friendly_msg)
             self.debug_message_signal.emit(user_friendly_msg, "error")
@@ -614,8 +617,12 @@ class TikTokLiveManager(QObject):
             self.logger.debug(f"Error getting library status: {e}")
         return {"status": "not_initialized"}
 
+    def get_last_error(self) -> str:
+        return self._last_error
+
     def get_debug_info(self) -> Dict[str, Any]:
         return {
+            "last_error": self._last_error,
             "connection_status": {
                 "is_connected": self._is_connected,
                 "username": self._username,

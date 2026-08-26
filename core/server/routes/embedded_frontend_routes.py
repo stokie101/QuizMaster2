@@ -101,6 +101,15 @@ def _drop_frontend_routes(app: FastAPI) -> None:
     ]
 
 
+def _repo_file(relative_path: str) -> Path | None:
+    """Locate a frontend file on disk, for runs without a generated bundle."""
+    for base in (_project_root(), Path.cwd()):
+        candidate = (base / relative_path).resolve()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _asset_or_404(relative_path: str, media_type: str | None):
     response = embedded_asset_response(relative_path, media_type)
     if response is not None:

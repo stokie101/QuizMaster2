@@ -106,10 +106,6 @@ def register_routes(app: FastAPI, server):
     register_embedded_frontend_routes(app)
     logger.info("✅ Embedded frontend route overrides registered")
 
-    from core.server.routes.tiktok_linked_routes import register_tiktok_linked_routes
-    register_tiktok_linked_routes(app, server)
-    logger.info("✅ TikTok linked-account routes registered")
-
     from core.server.routes.tiktok_routes import register_tiktok_routes
     register_tiktok_routes(app, server)
     logger.info("✅ TikTok routes registered")

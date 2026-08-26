@@ -1,0 +1,85 @@
+/* Shared press feedback.
+   Every clickable control in QuizMaster should visibly react the moment it is
+   pressed, so a slow backend call never looks like a dead button. Loaded by
+   every app page; the quiz controls dock has matching rules in controls.css. */
+
+button,
+.button,
+.nav-btn,
+[role="button"] {
+  transition: transform .09s ease, filter .12s ease, box-shadow .12s ease, opacity .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled):hover,
+.button:not(:disabled):hover,
+[role="button"]:not([aria-disabled="true"]):hover {
+  filter: brightness(1.09);
+}
+
+/* The press itself: a short, unmistakable depress. */
+button:not(:disabled):active,
+.button:not(:disabled):active,
+.nav-btn:active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: translateY(1px) scale(.975);
+  filter: brightness(.93);
+}
+
+button:focus-visible,
+.button:focus-visible,
+.nav-btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-2, #a78bfa);
+  outline-offset: 2px;
+}
+
+button:disabled,
+.button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+  filter: none;
+  transform: none;
+}
+
+/* A confirmation flash, applied briefly by qm-interactions.js on every click so
+   the feedback survives even when the pointer leaves the button immediately. */
+@keyframes qm-press-flash {
+  from { box-shadow: 0 0 0 0 rgba(167, 139, 250, .55); }
+  to   { box-shadow: 0 0 0 9px rgba(167, 139, 250, 0); }
+}
+.qm-pressed {
+  animation: qm-press-flash .4s ease-out;
+}
+
+/* Busy state for a control waiting on the backend. */
+.qm-busy {
+  position: relative;
+  pointer-events: none;
+  opacity: .75;
+}
+.qm-busy::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: qm-spin .7s linear infinite;
+}
+@keyframes qm-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button, .button, .nav-btn, [role="button"] { transition: none; }
+  button:active, .button:active, .nav-btn:active { transform: none; }
+  .qm-pressed { animation: none; }
+  .qm-busy::after { animation-duration: 2.4s; }
+}
