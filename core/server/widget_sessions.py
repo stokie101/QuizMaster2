@@ -20,7 +20,10 @@ WidgetType = Literal["quiz", "chess"]
 ACTIVE_STATUSES = {"created", "active", "paused"}
 ALL_STATUSES = ACTIVE_STATUSES | {"completed", "expired", "revoked"}
 CONTROL_TOKEN_TTL_SECONDS = 15 * 60
-EXCHANGE_TTL_SECONDS = 60
+# A control-exchange code travels inside a URL the streamer copies out of
+# Overlay Studio and pastes into an OBS browser source, so a one-minute life
+# expired before the page it belongs to was ever opened.
+EXCHANGE_TTL_SECONDS = 15 * 60
 
 
 def _now() -> datetime:

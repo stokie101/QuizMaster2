@@ -800,3 +800,18 @@ body.settings-page .qs-gear,
 body.settings-page .settings-panel-toolbar {
   display: none !important;
 }
+
+/* Control command failures (authorization, wrong state) belong on screen, not
+   only in the browser console the streamer never opens. */
+.qc-error {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(251, 113, 133, .35);
+  border-radius: 11px;
+  background: rgba(111, 35, 49, .35);
+  color: #fecdd3;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.qc-error[hidden] { display: none; }
