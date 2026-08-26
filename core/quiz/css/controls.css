@@ -815,3 +815,41 @@ body.settings-page .settings-panel-toolbar {
   line-height: 1.45;
 }
 .qc-error[hidden] { display: none; }
+
+/* Press feedback for the dock. The controls page loads only this stylesheet,
+   so the shared interactions.css rules are mirrored here. */
+.qc-btn, .qc-force-refresh, .qs-gear, .qs-close, .qs-toggle, .qs-link {
+  transition: transform .09s ease, filter .12s ease, box-shadow .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.qc-btn:not(:disabled):active,
+.qc-force-refresh:not(:disabled):active,
+.qs-gear:active,
+.qs-close:active,
+.qs-toggle:active,
+.qs-link:active {
+  transform: translateY(1px) scale(.97);
+  filter: brightness(.92);
+}
+.qc-btn:focus-visible,
+.qc-force-refresh:focus-visible,
+.qs-gear:focus-visible,
+.qs-close:focus-visible,
+.qs-toggle:focus-visible,
+.qs-select:focus-visible,
+.qs-number-input:focus-visible,
+.qs-slider:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+@keyframes qc-press-flash {
+  from { box-shadow: 0 0 0 0 rgba(124, 92, 255, .55); }
+  to   { box-shadow: 0 0 0 9px rgba(124, 92, 255, 0); }
+}
+.qm-pressed { animation: qc-press-flash .4s ease-out; }
+.qm-busy { pointer-events: none; opacity: .7; }
+@media (prefers-reduced-motion: reduce) {
+  .qc-btn, .qc-force-refresh, .qs-gear, .qs-close, .qs-toggle, .qs-link { transition: none; }
+  .qc-btn:active, .qc-force-refresh:active { transform: none; }
+  .qm-pressed { animation: none; }
+}

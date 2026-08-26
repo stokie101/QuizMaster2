@@ -844,8 +844,15 @@ class QuizControls {
 
   // Control commands used to swallow every failure into the console, so an
   // authorization or state error looked like a dead button.
-  async _sendCommand(action, endpoint) {
+  async _sendCommand(action, endpoint, button = null) {
     console.log(`[QuizControls] ${action} clicked`);
+    if (button && window.QuizMasterUI?.withBusy) {
+      return window.QuizMasterUI.withBusy(button, () => this._runCommand(action, endpoint));
+    }
+    return this._runCommand(action, endpoint);
+  }
+
+  async _runCommand(action, endpoint) {
     try {
       const response = await window.QuizMasterURLs.authorizedFetch(endpoint, { method: 'POST' });
       const result = await response.json().catch(() => ({}));
@@ -861,26 +868,26 @@ class QuizControls {
   }
 
   async _onStartClick() {
-    await this._sendCommand('Start', '/api/quiz/start');
+    await this._sendCommand('Start', '/api/quiz/start', this.start_button);
   }
 
   async _onPauseResumeClick() {
     const currentState = String(this.current_quiz_state || 'IDLE').toUpperCase();
     if (currentState === 'PAUSED') {
-      await this._sendCommand('Resume', '/api/quiz/resume');
+      await this._sendCommand('Resume', '/api/quiz/resume', this.pause_resume_button);
     } else if (currentState === 'QUESTION_ACTIVE') {
-      await this._sendCommand('Pause', '/api/quiz/pause');
+      await this._sendCommand('Pause', '/api/quiz/pause', this.pause_resume_button);
     } else {
       console.warn('[QuizControls] Pause/Resume ignored in state:', currentState);
     }
   }
 
   async _onStopClick() {
-    await this._sendCommand('Stop', '/api/quiz/stop');
+    await this._sendCommand('Stop', '/api/quiz/stop', this.stop_button);
   }
 
   async _onSkipClick() {
-    await this._sendCommand('Skip', '/api/quiz/skip');
+    await this._sendCommand('Skip', '/api/quiz/skip', this.skip_button);
   }
 
   _onLoadQuizClick() {

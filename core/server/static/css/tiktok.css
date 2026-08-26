@@ -1,4 +1,4 @@
-/* TikTok connector page: account linking, manual login, chat feed and log. */
+/* TikTok connector page: manual login, chat feed and connection log. */
 
 .tiktok-page .two-column { align-items: start; }
 .tiktok-page .card { display: flex; flex-direction: column; }
@@ -28,37 +28,6 @@
 .status-indicator.connecting { background: var(--warning); box-shadow: 0 0 0 4px rgba(245, 158, 11, .14); }
 .status-indicator.disconnected { background: #64748b; }
 .status-indicator.error { background: var(--danger); box-shadow: 0 0 0 4px rgba(239, 68, 68, .14); }
-
-.tt-account {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 14px 0 4px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(7, 11, 20, .6);
-}
-.tt-avatar {
-  width: 52px;
-  height: 52px;
-  flex: 0 0 52px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid rgba(167, 139, 250, .45);
-}
-.tt-avatar-fallback {
-  display: grid;
-  place-items: center;
-  background: rgba(124, 58, 237, .16);
-  color: var(--accent-2);
-  font-weight: 800;
-  font-size: 20px;
-}
-.tt-account-copy { min-width: 0; }
-.tt-account-name { font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-account-user { color: #cbd5e1; font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-account-stats { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
 .tt-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .tt-actions .button { margin-top: 12px; }
@@ -112,4 +81,33 @@
 
 @media (max-width: 1100px) {
   .tt-chat-scroll, .tt-log { height: 260px; }
+}
+
+.tt-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(239, 68, 68, .4);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(239, 68, 68, .16), rgba(239, 68, 68, .07));
+}
+.tt-alert[hidden] { display: none; }
+.tt-alert-body { flex: 1; min-width: 0; }
+.tt-alert-body strong { display: block; color: #fecaca; font-size: 15px; margin-bottom: 4px; }
+.tt-alert-body p { margin: 0; color: #fee2e2; font-size: 13px; line-height: 1.55; }
+.tt-alert-hint { margin-top: 6px !important; color: #fecdd3 !important; opacity: .85; font-size: 12px !important; }
+.tt-alert-hint[hidden] { display: none; }
+.tt-alert-close {
+  flex: 0 0 auto;
+  border: 1px solid rgba(239, 68, 68, .35);
+  background: rgba(15, 23, 42, .5);
+  color: #fecaca;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-weight: 800;
+  line-height: 1;
 }

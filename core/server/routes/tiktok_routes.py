@@ -17,65 +17,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
-
-from config.auth_broker import AUTH_BASE_URL_FIELD, DEFAULT_AUTH_BASE_URL, load_auth_broker_config
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 
 logger = logging.getLogger(__name__)
-
-
-def _load_quizmaster_tiktok_broker_url() -> str:
-    """Return QuizMaster's TikTok broker URL without falling back to another app broker."""
-    try:
-        configured = (load_auth_broker_config().auth_base_url or DEFAULT_AUTH_BASE_URL).strip().rstrip("/")
-    except Exception:
-        configured = DEFAULT_AUTH_BASE_URL.rstrip("/")
-    if "quizmaster.online" not in configured:
-        logger.warning(
-            "quizmaster_tiktok_broker_url_rejected configured=%s expected_field=%s",
-            configured,
-            AUTH_BASE_URL_FIELD,
-        )
-        return DEFAULT_AUTH_BASE_URL.rstrip("/")
-    return configured
-
-
-TIKTOK_OFFICIAL_LOGIN_BROKER_URL = _load_quizmaster_tiktok_broker_url()
-DEMO_PROFILE_ID = "demo_profile"
-DEMO_DEVICE_ID = "demo_device"
 
 
 def _sanitize_log_id(value: str) -> str:
     """Keep IDs readable for diagnostics without allowing log injection."""
     text = str(value or "").strip()
     return re.sub(r"[^A-Za-z0-9_.:-]", "_", text)[:128]
-
-
-def _resolve_tiktok_official_demo_ids() -> tuple[str, str, bool]:
-    """Resolve the runtime profile and local device IDs for the temporary TikTok OAuth demo."""
-    profile_id = ""
-    device_id = ""
-    try:
-        from core.services.identity_resolver import resolve_identity
-
-        profile_id = str(resolve_identity().active_runtime_id or "").strip()
-    except Exception as exc:
-        logger.warning("tiktok_official_login_identity_resolution_failed error=%s", exc)
-
-    try:
-        from core.services.local_identity import LocalIdentityService
-
-        local_profile = LocalIdentityService().get_status().get("profile") or {}
-        device_id = str(local_profile.get("device_id") or "").strip()
-    except Exception as exc:
-        logger.warning("tiktok_official_login_device_resolution_failed error=%s", exc)
-
-    fallback_used = not profile_id or not device_id
-    if fallback_used:
-        logger.warning("tiktok_official_login_demo_fallback_ids_used")
-        profile_id = profile_id or DEMO_PROFILE_ID
-        device_id = device_id or DEMO_DEVICE_ID
-    return profile_id, device_id, fallback_used
 
 
 def register_tiktok_routes(app: FastAPI, server):
@@ -89,198 +39,6 @@ def register_tiktok_routes(app: FastAPI, server):
     # CONNECTION MANAGEMENT
     # ============================================================
 
-
-    # ============================================================
-    # OFFICIAL TIKTOK LOGIN KIT / DISPLAY API DIAGNOSTICS
-    # ============================================================
-
-    async def _tiktok_official_start(mode: str):
-        """Start official TikTok Login Kit without touching TikTokLive widgets."""
-        from core.tiktok.official_api import official_tiktok_diagnostics
-
-        log_prefix = "[TikTok Official Sandbox]" if mode == "sandbox" else "[TikTok Official Production]"
-        url, meta = official_tiktok_diagnostics.start_url(mode)
-        if not url:
-            logger.warning("%s OAuth configuration missing fields=%s", log_prefix, meta.get("missing"))
-            return JSONResponse({"success": False, "mode": mode, "error": "oauth_config_missing", **meta}, status_code=503)
-        logger.info("%s redirecting to TikTok Login Kit scopes=%s", log_prefix, meta.get("scopes_requested"))
-        return RedirectResponse(url)
-
-    async def _tiktok_official_callback(mode: str, request: Request):
-        """Exchange code and fetch official Display API diagnostics only."""
-        from core.tiktok.official_api import official_tiktok_diagnostics
-
-        log_prefix = "[TikTok Official Sandbox]" if mode == "sandbox" else "[TikTok Official Production]"
-        code = str(request.query_params.get("code") or "")
-        state = str(request.query_params.get("state") or "")
-        error = str(request.query_params.get("error") or "")
-        if error:
-            logger.warning("%s TikTok Login Kit returned error=%s", log_prefix, _sanitize_log_id(error))
-            return JSONResponse({"success": False, "mode": mode, "error": error}, status_code=400)
-        if not code or not state:
-            logger.warning("%s callback missing code or state", log_prefix)
-            return JSONResponse({"success": False, "mode": mode, "error": "missing_code_or_state"}, status_code=400)
-        result = official_tiktok_diagnostics.finish_callback(mode, code, state)
-        status_code = 200 if result.get("status") == "connected" else 502
-        return JSONResponse({"success": status_code == 200, "diagnostic_summary": "Official TikTok login working. Available official fields: %s. Missing live fields: %s" % (", ".join(result.get("available_official_fields") or []), ", ".join(result.get("missing_live_fields") or [])), "result": result}, status_code=status_code)
-
-    def _save_official_username(username: str) -> None:
-        """Persist the official linked username as the TikTokLive source account."""
-        normalized = str(username or "").strip().lstrip("@")
-        if not normalized:
-            return
-        config = getattr(server, "config_manager", None)
-        if not config:
-            return
-        try:
-            if hasattr(config, "config") and not config.config.has_section("TikTokLive"):
-                config.config.add_section("TikTokLive")
-            saved = False
-            if hasattr(config, "set"):
-                saved = bool(config.set("TikTokLive", "last_username", normalized))
-            if not saved and hasattr(config, "save_config"):
-                config.save_config()
-            logger.info("official_tiktok_username_saved username=%s", _sanitize_log_id(normalized))
-        except Exception as exc:
-            logger.warning("official_tiktok_username_save_failed error=%s", exc)
-
-    def _clean_official_snapshot(stats: dict[str, Any] | None, *, status_connected: bool = False) -> dict[str, Any]:
-        stats = stats or {}
-        followers_raw = stats.get("exact_current_followers")
-        followers = None
-        if not isinstance(followers_raw, bool):
-            if isinstance(followers_raw, int):
-                followers = max(0, followers_raw)
-            elif isinstance(followers_raw, str) and followers_raw.strip().isdigit():
-                followers = max(0, int(followers_raw.strip()))
-        username = str(stats.get("username") or "").strip().lstrip("@")
-        available = bool(stats.get("available") and stats.get("exact") and username and followers is not None)
-        return {
-            "connected": bool(available or status_connected),
-            "available": available,
-            "username": username,
-            "display_name": stats.get("display_name") or username,
-            "avatar_url": stats.get("avatar_url_100") or stats.get("avatar_url") or stats.get("avatar_large_url") or "",
-            "profile_deep_link": stats.get("profile_deep_link") or "",
-            "verified": bool(stats.get("is_verified")),
-            "followers": followers,
-            "updated_at": stats.get("updated_at") or "",
-            "source": "tiktok_oauth_broker" if available else stats.get("source") or "unavailable",
-        }
-
-    def _fetch_official_account_snapshot() -> tuple[dict[str, Any], dict[str, Any]]:
-        from core.tiktok.account_stats import CloudflareTikTokAuthProvider, TikTokAccountStatsService
-
-        profile_id, device_id, fallback_used = _resolve_tiktok_official_demo_ids()
-        provider = CloudflareTikTokAuthProvider(TIKTOK_OFFICIAL_LOGIN_BROKER_URL, device_id=device_id)
-        status = provider.fetch_status(profile_id)
-        stats = status.get("account_stats") if isinstance(status.get("account_stats"), dict) else {}
-        snapshot = _clean_official_snapshot(stats, status_connected=bool(status.get("connected")))
-        snapshot.update({
-            "profile_id": profile_id,
-            "device_id": device_id,
-            "fallback_ids_used": fallback_used,
-            "broker_url": TIKTOK_OFFICIAL_LOGIN_BROKER_URL,
-        })
-        if snapshot.get("available"):
-            _save_official_username(snapshot.get("username") or "")
-            try:
-                service = TikTokAccountStatsService.get_instance()
-                with service._lock:
-                    service._snapshots[profile_id] = service._normalize(stats, profile_id, snapshot.get("username") or "")
-                    service._save_snapshots()
-            except Exception as exc:
-                logger.debug("official_tiktok_account_cache_update_failed error=%s", exc)
-        return snapshot, status
-
-    @app.get("/auth/tiktok/start")
-    async def tiktok_official_production_start():
-        return await _tiktok_official_start("production")
-
-    @app.get("/auth/tiktok/callback")
-    async def tiktok_official_production_callback(request: Request):
-        return await _tiktok_official_callback("production", request)
-
-    @app.get("/auth/tiktok/sandbox/start")
-    async def tiktok_official_sandbox_start():
-        return await _tiktok_official_start("sandbox")
-
-    @app.get("/auth/tiktok/sandbox/callback")
-    async def tiktok_official_sandbox_callback(request: Request):
-        return await _tiktok_official_callback("sandbox", request)
-
-    @app.get("/api/tiktok/official/diagnostics")
-    async def tiktok_official_diagnostics():
-        from core.tiktok.official_api import official_tiktok_diagnostics
-
-        return JSONResponse(official_tiktok_diagnostics.diagnostics())
-
-
-    @app.post("/api/tiktok/official-login/open")
-    async def tiktok_official_login_open():
-        """Open temporary TikTok official OAuth broker flow in the external browser."""
-        try:
-            from core.tiktok.account_stats import CloudflareTikTokAuthProvider
-
-            profile_id, device_id, fallback_used = _resolve_tiktok_official_demo_ids()
-            provider = CloudflareTikTokAuthProvider(TIKTOK_OFFICIAL_LOGIN_BROKER_URL, device_id=device_id)
-            opened = provider.connect(profile_id)
-            logger.info(
-                "tiktok_official_login_opened broker_url=%s profile_id=%s device_id=%s",
-                TIKTOK_OFFICIAL_LOGIN_BROKER_URL,
-                _sanitize_log_id(profile_id),
-                _sanitize_log_id(device_id),
-            )
-            return JSONResponse({
-                "success": bool(opened),
-                "opened": bool(opened),
-                "profile_id": profile_id,
-                "device_id": device_id,
-                "fallback_ids_used": fallback_used,
-                "broker_url": TIKTOK_OFFICIAL_LOGIN_BROKER_URL,
-            })
-        except Exception as e:
-            logger.error(f"❌ TikTok official login open error: {e}", exc_info=True)
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-    @app.get("/api/tiktok/account-snapshot")
-    async def tiktok_account_snapshot():
-        """Clean linked TikTok account snapshot for UI/widgets. No raw IDs or tokens."""
-        try:
-            snapshot, _ = _fetch_official_account_snapshot()
-            return JSONResponse({"success": True, **snapshot})
-        except Exception as e:
-            logger.warning("tiktok_account_snapshot_unavailable error=%s", e)
-            return JSONResponse({"success": False, "connected": False, "available": False, "error": str(e)}, status_code=502)
-
-    @app.get("/api/tiktok/official-login/status")
-    async def tiktok_official_login_status():
-        """Check temporary TikTok official OAuth broker status without exposing tokens."""
-        try:
-            snapshot, status = _fetch_official_account_snapshot()
-            configured = bool(status.get("configured") or status.get("connected") or status.get("available"))
-            logger.info(
-                "tiktok_official_login_status broker_url=%s profile_id=%s device_id=%s configured=%s connected=%s",
-                TIKTOK_OFFICIAL_LOGIN_BROKER_URL,
-                _sanitize_log_id(snapshot.get("profile_id") or ""),
-                _sanitize_log_id(snapshot.get("device_id") or ""),
-                bool(status.get("configured")),
-                bool(status.get("connected")),
-            )
-            return JSONResponse({
-                "success": True,
-                "configured": configured,
-                "connected": bool(status.get("connected")),
-                "status": status,
-                "account_snapshot": snapshot,
-                "profile_id": snapshot.get("profile_id"),
-                "device_id": snapshot.get("device_id"),
-                "fallback_ids_used": snapshot.get("fallback_ids_used"),
-                "broker_url": TIKTOK_OFFICIAL_LOGIN_BROKER_URL,
-            })
-        except Exception as e:
-            logger.warning("tiktok_official_login_status_unavailable error=%s", e)
-            return JSONResponse({"success": False, "error": str(e)}, status_code=502)
 
     @app.post("/api/tiktok/connect")
     async def tiktok_connect(request: Request):
@@ -335,6 +93,9 @@ def register_tiktok_routes(app: FastAPI, server):
                 "success": True,
                 "connected": tiktok_manager.is_connected(),
                 "username": tiktok_manager.get_current_username(),
+                # The page polls this, so a failure that happened while no
+                # socket was listening is still explainable to the user.
+                "last_error": tiktok_manager.get_last_error(),
                 "debug": tiktok_manager.get_debug_info()
             })
 
@@ -346,17 +107,30 @@ def register_tiktok_routes(app: FastAPI, server):
     # USERNAME PERSISTENCE - ROBUST FIX
     # ============================================================
 
+    def _save_username(username: str) -> None:
+        """Persist the username as the TikTokLive source account."""
+        normalized = str(username or "").strip().lstrip("@")
+        if not normalized:
+            return
+        config = getattr(server, "config_manager", None)
+        if not config:
+            return
+        try:
+            if hasattr(config, "config") and not config.config.has_section("TikTokLive"):
+                config.config.add_section("TikTokLive")
+            saved = False
+            if hasattr(config, "set"):
+                saved = bool(config.set("TikTokLive", "last_username", normalized))
+            if not saved and hasattr(config, "save_config"):
+                config.save_config()
+            logger.info("tiktok_username_saved username=%s", _sanitize_log_id(normalized))
+        except Exception as exc:
+            logger.warning("tiktok_username_save_failed error=%s", exc)
+
     @app.get("/api/tiktok/username")
     async def get_tiktok_username():
-        """Get official linked TikTok username, then legacy saved fallback."""
+        """Get the last TikTok username this app connected to."""
         try:
-            try:
-                snapshot, _ = _fetch_official_account_snapshot()
-                if snapshot.get("available") and snapshot.get("username"):
-                    return JSONResponse({"success": True, "username": snapshot.get("username"), "source": "official_tiktok_account"})
-            except Exception:
-                pass
-
             config = getattr(server, "config_manager", None)
             if not config:
                 return JSONResponse({"success": False, "error": "ConfigManager not available"}, status_code=503)
@@ -411,7 +185,7 @@ def register_tiktok_routes(app: FastAPI, server):
             if not username:
                 raise HTTPException(status_code=400, detail="Username cannot be empty")
 
-            _save_official_username(username)
+            _save_username(username)
             try:
                 from core.server.session_identity import RuntimeSessionIdentity
                 from core.tiktok.profile_stats import TikTokProfileStatsService
@@ -431,7 +205,7 @@ def register_tiktok_routes(app: FastAPI, server):
     @app.get("/api/tiktok/profile_stats")
     @app.get("/u/{public_widget_id}/api/tiktok/profile-stats")
     async def get_profile_stats(public_widget_id: str | None = None):
-        """Return official follower count first; public scraping is only a fallback."""
+        """Return follower stats for the connected TikTok username."""
         from core.server.session_identity import RuntimeSessionIdentity, validate_profile_or_warn
         from core.tiktok.profile_stats import TikTokProfileStatsService
 
@@ -440,27 +214,6 @@ def register_tiktok_routes(app: FastAPI, server):
                 validate_profile_or_warn(public_widget_id, route="tiktok_profile_stats")
             except ValueError as exc:
                 raise HTTPException(status_code=403, detail=str(exc))
-
-        try:
-            snapshot, _ = _fetch_official_account_snapshot()
-            if snapshot.get("available") and snapshot.get("followers") is not None:
-                return JSONResponse({
-                    "platform": "tiktok",
-                    "username": snapshot.get("username") or "",
-                    "display_name": snapshot.get("display_name") or snapshot.get("username") or "",
-                    "avatar_url": snapshot.get("avatar_url") or "",
-                    "follower_count": snapshot.get("followers"),
-                    "following_count": None,
-                    "like_count": None,
-                    "source": "tiktok_official_account",
-                    "updated_at": snapshot.get("updated_at") or "",
-                    "stale": False,
-                    "available": True,
-                    "estimated": False,
-                    "exact": True,
-                })
-        except Exception as exc:
-            logger.debug("official_tiktok_profile_stats_unavailable error=%s", exc)
 
         profile_id = RuntimeSessionIdentity.profile_id()
         username = tiktok_manager.get_current_username()

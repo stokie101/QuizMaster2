@@ -20,6 +20,11 @@ from core.utils.resource_loader import get_resource_path
 _core_assets_root: Path | None = None
 
 
+def _project_root() -> Path:
+    # core/server/routes/embedded_frontend_routes.py -> repository root
+    return Path(__file__).resolve().parents[3]
+
+
 def _core_assets_dir() -> Path:
     global _core_assets_root
     if _core_assets_root is None:
@@ -90,11 +95,27 @@ def _drop_frontend_routes(app: FastAPI) -> None:
     ]
 
 
+def _repo_file(relative_path: str) -> Path | None:
+    """Locate a frontend file on disk, for runs without a generated bundle."""
+    for base in (_project_root(), Path.cwd()):
+        candidate = (base / relative_path).resolve()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _asset_or_404(relative_path: str, media_type: str | None):
     response = embedded_asset_response(relative_path, media_type)
-    if response is None:
-        raise HTTPException(status_code=404, detail=f"Embedded asset not found: {relative_path}")
-    return response
+    if response is not None:
+        return response
+    # Release builds serve everything from the bundle, but these routes replace
+    # the filesystem ones unconditionally. Without this fallback, running from
+    # source (or any build where one asset missed the bundle) answered every
+    # controls, display and leaderboard page with "Embedded asset not found".
+    disk_file = _repo_file(relative_path)
+    if disk_file is not None:
+        return FileResponse(str(disk_file), media_type=media_type)
+    raise HTTPException(status_code=404, detail=f"Asset not found: {relative_path}")
 
 
 def register_embedded_frontend_routes(app: FastAPI) -> None:
