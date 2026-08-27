@@ -86,6 +86,9 @@ class HostedQuizBridge:
         self._connected = False
         self._last_error: Optional[str] = None
         self._signals: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=SIGNAL_QUEUE_MAX)
+        self._session_lock = threading.Lock()
+        self._session = None
+        self._warmed = False
 
     @property
     def connected(self) -> bool:
@@ -98,6 +101,53 @@ class HostedQuizBridge:
             "connected": self._connected,
             "error": self._last_error,
         }
+
+    # -- transport -----------------------------------------------------------
+
+    def _http(self):
+        """A pooled session, so a signal does not pay for a new TLS handshake.
+
+        Every hosted post used to open its own connection. The first question of
+        a quiz therefore paid DNS, TCP and TLS to the widget host on top of
+        waking a cold Durable Object -- seconds, and seconds the runtime had
+        already started counting down. Later questions reused nothing but were
+        fast anyway because DNS was cached, which is why only the first was
+        visibly late.
+        """
+        import requests
+
+        with self._session_lock:
+            if self._session is None:
+                session = requests.Session()
+                adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=4)
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                self._session = session
+            return self._session
+
+    def _warm_up(self, access_token: str, public_widget_id: str) -> None:
+        """Open the connection and wake the account channel before the quiz does.
+
+        Runs once the app is signed in, so the first question of the first quiz
+        travels over a live connection to an awake Durable Object instead of
+        paying for both while the clock is running.
+        """
+        if self._warmed:
+            return
+        try:
+            self._http().get(f"{self._hosted_base_url()}/health", timeout=PUBLISH_TIMEOUT_SECONDS)
+        except Exception as exc:
+            # An app that started offline must warm up when it reaches the host,
+            # not be marked warm because its first attempt failed.
+            logger.debug("hosted_bridge_warmup_failed error=%s", exc)
+            return
+        self._warmed = True
+        try:
+            # Touching the account's own channel is what actually wakes it; a
+            # health check only warms the connection.
+            self._publish_state_blocking(access_token, public_widget_id, force=True)
+        except Exception as exc:
+            logger.debug("hosted_bridge_warmup_state_failed error=%s", exc)
 
     # -- live signal mirror --------------------------------------------------
 
@@ -163,11 +213,9 @@ class HostedQuizBridge:
         return out
 
     def _publish_signal_blocking(self, access_token: str, public_widget_id: str, payload: Dict[str, Any]) -> None:
-        import requests
-
         payload = self._stamp_timer_reading(payload)
         try:
-            requests.post(
+            self._http().post(
                 f"{self._hosted_base_url()}/api/publish/{self._widget_type}"
                 f"?public_widget_id={quote(public_widget_id, safe='')}",
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -253,6 +301,7 @@ class HostedQuizBridge:
                 await asyncio.sleep(RECONNECT_MIN_SECONDS)
                 continue
             try:
+                await asyncio.to_thread(self._warm_up, access_token, public_widget_id)
                 await self._consume_commands(access_token, public_widget_id)
                 backoff = RECONNECT_MIN_SECONDS
             except asyncio.CancelledError:
@@ -424,7 +473,7 @@ class HostedQuizBridge:
 
         base = self._hosted_base_url()
         try:
-            response = requests.post(
+            response = self._http().post(
                 f"{base}/api/{self._widget_type}/control-state",
                 headers={"Authorization": f"Bearer {access_token}"},
                 json=payload,
@@ -459,7 +508,7 @@ class HostedQuizBridge:
             return
 
         try:
-            response = requests.post(
+            response = self._http().post(
                 f"{self._hosted_base_url()}/api/publish/{self._widget_type}"
                 f"?public_widget_id={quote(public_widget_id, safe='')}",
                 headers={"Authorization": f"Bearer {access_token}"},
