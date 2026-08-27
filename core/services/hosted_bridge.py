@@ -26,6 +26,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -136,9 +137,33 @@ class HostedQuizBridge:
         except queue.Empty:
             return None
 
+    @staticmethod
+    def _stamp_timer_reading(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Stamp a timer payload with the clock reading it is compared against.
+
+        The overlay derives remaining time from the deadline and this reading,
+        so it has to be taken as the payload is SENT. Taken when the signal was
+        emitted, time spent queued here counts as time still left to run, and
+        the hosted countdown finishes that much after the answer is revealed.
+        """
+        args = payload.get("args") or []
+        first = args[0] if args and isinstance(args[0], dict) else None
+        if not first or "deadline_unix_ms" not in first:
+            return payload
+        now_ms = int(time.time() * 1000)
+        stamped = dict(first)
+        stamped["server_now_unix_ms"] = now_ms
+        remaining_ms = max(0, int(stamped["deadline_unix_ms"]) - now_ms)
+        stamped["remaining_ms"] = remaining_ms
+        stamped["remaining"] = remaining_ms / 1000.0
+        out = dict(payload)
+        out["args"] = [stamped] + list(args[1:])
+        return out
+
     def _publish_signal_blocking(self, access_token: str, public_widget_id: str, payload: Dict[str, Any]) -> None:
         import requests
 
+        payload = self._stamp_timer_reading(payload)
         try:
             requests.post(
                 f"{self._hosted_base_url()}/api/publish/{self._widget_type}"

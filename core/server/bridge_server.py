@@ -610,9 +610,55 @@ class HTTPBridgeServer:
         try:
             from core.services.hosted_bridge import publish_hosted_signal
 
-            publish_hosted_signal(signal_name, args)
+            publish_hosted_signal(signal_name, self._hosted_signal_args(signal_name, args))
         except Exception as e:
             logger.debug("hosted signal mirror skipped signal=%s error=%s", signal_name, e)
+
+    # Timer signals carry only a duration locally, which is all a same-process
+    # overlay needs: it starts counting the moment the signal is emitted. A
+    # hosted overlay receives that signal after a queue, an HTTPS post, the
+    # widget host and a broadcast, and anchoring a full duration at ARRIVAL puts
+    # every millisecond of that trip on the end of its countdown -- the hosted
+    # clock finished about a second after the answer had already been revealed.
+    #
+    # So the mirrored copy carries the countdown's absolute wall-clock deadline.
+    # The reading it is compared against is stamped by the bridge as the payload
+    # is actually sent, not here, so time spent queued is not counted as time
+    # still left to run.
+    TIMER_SIGNALS = frozenset({"timer_started", "timer_resumed", "timer_paused", "timer_expired"})
+
+    def _hosted_signal_args(self, signal_name: str, args: tuple) -> tuple:
+        if signal_name not in self.TIMER_SIGNALS:
+            return args
+        try:
+            with self._snapshot_lock:
+                state = dict(self._timer_state)
+
+            total = float(state.get("total") or 0)
+            payload: Dict[str, Any] = {"total": total}
+
+            started_at = state.get("started_at")
+            if state.get("running") and started_at:
+                # Absolute and stable: the bridge derives remaining from this
+                # against its own reading at send time.
+                payload["deadline_unix_ms"] = int((float(started_at) + total) * 1000)
+            else:
+                # A held clock has no deadline; its remaining time is fixed.
+                payload["remaining"] = max(0.0, float(state.get("remaining") or 0))
+                payload["remaining_ms"] = int(payload["remaining"] * 1000)
+
+            # Preserve whatever the emitter sent: a dict's own fields (a
+            # question_instance_id among them, which the overlay uses to ignore
+            # a duplicate delivery of the same start) must survive.
+            first = args[0] if args else None
+            if isinstance(first, dict):
+                merged = dict(first)
+                merged.update(payload)
+                return (merged,) + tuple(args[1:])
+            return (payload,) + tuple(args[1:])
+        except Exception as e:
+            logger.debug("hosted timer anchor skipped signal=%s error=%s", signal_name, e)
+            return args
 
     def _active_widget_rooms(self) -> set:
         """Distinct non-default rooms that currently have a connected widget."""
