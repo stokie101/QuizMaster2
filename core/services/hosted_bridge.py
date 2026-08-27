@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import queue
 import threading
 from typing import Any, Dict, Optional
 from urllib.parse import quote
@@ -49,6 +50,17 @@ COMMAND_ENDPOINTS: Dict[str, str] = {
     "clear_quiz": "/api/quiz/stop",
 }
 
+# The hosted display renders from live signals, not from polled state, so every
+# signal the desktop emits locally has to be mirrored to the hosted channel as
+# {event, args} -- the shape public/w/quiz_display/hosted-quiz-display-env.js
+# delivers to the real display controller.
+#
+# timer_tick is deliberately not mirrored: the hosted overlay anchors its
+# countdown to the deadline carried by timer_started and runs its own clock, so
+# forwarding ticks would be a request per second per viewer for nothing.
+SIGNAL_QUEUE_MAX = 200
+UNMIRRORED_SIGNALS = frozenset({"timer_tick", "heartbeat", "heartbeat_ack"})
+
 STATE_POLL_SECONDS = 2.0
 RECONNECT_MIN_SECONDS = 3.0
 RECONNECT_MAX_SECONDS = 60.0
@@ -70,6 +82,7 @@ class HostedQuizBridge:
         self._last_snapshot: Optional[str] = None
         self._connected = False
         self._last_error: Optional[str] = None
+        self._signals: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=SIGNAL_QUEUE_MAX)
 
     @property
     def connected(self) -> bool:
@@ -82,6 +95,67 @@ class HostedQuizBridge:
             "connected": self._connected,
             "error": self._last_error,
         }
+
+    # -- live signal mirror --------------------------------------------------
+
+    def publish_signal(self, signal_name: str, args: Any = None) -> None:
+        """Queue one live signal for the hosted display.
+
+        Called from the quiz runtime's own threads, so it must never block or
+        raise: a full queue drops the oldest signal rather than stalling the
+        quiz behind a network request.
+        """
+        name = str(signal_name or "").strip()
+        if not name or name in UNMIRRORED_SIGNALS:
+            return
+        payload = {"event": name, "args": list(args) if args else []}
+        try:
+            self._signals.put_nowait(payload)
+        except queue.Full:
+            try:
+                self._signals.get_nowait()
+                self._signals.put_nowait(payload)
+            except queue.Empty:
+                pass
+            except queue.Full:
+                pass
+
+    async def _signal_loop(self) -> None:
+        while not self._stopping.is_set():
+            payload = await asyncio.to_thread(self._next_signal)
+            if payload is None:
+                continue
+            access_token, public_widget_id = self._credentials()
+            if not access_token or not public_widget_id:
+                continue
+            await asyncio.to_thread(self._publish_signal_blocking, access_token, public_widget_id, payload)
+
+    def _next_signal(self) -> Optional[Dict[str, Any]]:
+        try:
+            return self._signals.get(timeout=0.5)
+        except queue.Empty:
+            return None
+
+    def _publish_signal_blocking(self, access_token: str, public_widget_id: str, payload: Dict[str, Any]) -> None:
+        import requests
+
+        try:
+            requests.post(
+                f"{self._hosted_base_url()}/api/publish/{self._widget_type}"
+                f"?public_widget_id={quote(public_widget_id, safe='')}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={
+                    "snapshot": payload,
+                    "event_type": payload.get("event"),
+                    "public_widget_id": public_widget_id,
+                },
+                timeout=PUBLISH_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.debug(
+                "hosted_bridge_signal_publish_failed widget=%s event=%s error=%s",
+                self._widget_type, payload.get("event"), exc,
+            )
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -106,7 +180,7 @@ class HostedQuizBridge:
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
             self._loop.run_until_complete(
-                asyncio.gather(self._command_loop(), self._state_loop())
+                asyncio.gather(self._command_loop(), self._state_loop(), self._signal_loop())
             )
         except Exception as exc:
             logger.warning("hosted_bridge_stopped widget=%s error=%s", self._widget_type, exc)
@@ -373,6 +447,14 @@ class HostedQuizBridge:
 
 _bridge_lock = threading.Lock()
 _bridge: Optional[HostedQuizBridge] = None
+
+
+def publish_hosted_signal(signal_name: str, args: Any = None) -> None:
+    """Mirror one live signal to the hosted display, if the bridge is running."""
+    with _bridge_lock:
+        bridge = _bridge
+    if bridge is not None:
+        bridge.publish_signal(signal_name, args)
 
 
 def hosted_bridge_status() -> Dict[str, Any]:
