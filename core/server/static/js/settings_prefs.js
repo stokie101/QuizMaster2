@@ -98,18 +98,12 @@
     input.addEventListener('change', () => saveSetting(key, input.checked));
   }
 
-  function enhanceLinks(root) {
-    root.querySelectorAll('button').forEach((btn) => {
-      const label = (btn.textContent || '').trim().toLowerCase();
-      if (label.includes('open widgets.liveforge.online')) {
-        btn.onclick = () => window.open('https://widgets.liveforge.online', '_blank', 'noopener,noreferrer');
-        btn.disabled = false;
-      } else if (label.includes('open quizmaster.liveforge.online')) {
-        btn.onclick = () => window.open('https://quizmaster.liveforge.online', '_blank', 'noopener,noreferrer');
-        btn.disabled = false;
-      }
-    });
-  }
+  // These buttons used to be rewired here by matching their visible label, so
+  // renaming one silently broke its link -- and both pointed at destinations a
+  // user has no business seeing: a dead hostname, and the widget host, which is
+  // backend infrastructure. settings.js now attaches the real handlers itself,
+  // from one list of user-facing URLs, and nothing needs to guess from text.
+  function enhanceLinks() {}
 
   function enhanceSettingsPage() {
     const root = document.getElementById('settingsContent');
