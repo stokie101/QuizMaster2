@@ -25,6 +25,22 @@ class QuizTimer:
         self._thread_stop = stop_event
         return self._generation, stop_event
 
+    DEFAULT_BACKGROUND_FILE = "background_music.wav"
+
+    def _background_file_name(self) -> str:
+        """The configured background track, or the packaged default."""
+        try:
+            from config.config_manager import ConfigManager
+
+            configured = ConfigManager.get_instance().get(
+                "SOUND", "background_file", fallback=""
+            )
+            if configured and str(configured).strip():
+                return str(configured).strip()
+        except Exception:
+            pass
+        return self.DEFAULT_BACKGROUND_FILE
+
     def start(self, duration: int):
         if not isinstance(duration, (int, float)) or duration <= 0:
             self.logger.error(f"Invalid duration: {duration}")
@@ -46,6 +62,15 @@ class QuizTimer:
                 self.audio.play_timer_for_duration("timer_sound.wav", duration)
             except Exception as e:
                 self.logger.warning(f"Failed to play timer audio: {e}")
+            try:
+                # The bed is aligned the same way as the cue: its last `duration`
+                # seconds play, so the music resolves exactly as the clock hits
+                # zero instead of being cut off wherever it happened to be.
+                self.audio.play_background_for_duration(
+                    self._background_file_name(), duration
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to play background audio: {e}")
 
         self._thread = threading.Thread(
             target=self._run,
@@ -69,10 +94,11 @@ class QuizTimer:
             stop_event.set()
 
         if self.audio:
-            try:
-                self.audio.pause_audio("timer")
-            except Exception as e:
-                self.logger.warning(f"Failed to pause audio: {e}")
+            for sound_type in ("timer", "background"):
+                try:
+                    self.audio.pause_audio(sound_type)
+                except Exception as e:
+                    self.logger.warning(f"Failed to pause {sound_type} audio: {e}")
         return True
 
     def resume(self):
@@ -84,10 +110,11 @@ class QuizTimer:
             generation, stop_event = self._bump_generation()
 
         if self.audio:
-            try:
-                self.audio.resume_audio("timer")
-            except Exception as e:
-                self.logger.warning(f"Failed to resume audio: {e}")
+            for sound_type in ("timer", "background"):
+                try:
+                    self.audio.resume_audio(sound_type)
+                except Exception as e:
+                    self.logger.warning(f"Failed to resume {sound_type} audio: {e}")
 
         self._thread = threading.Thread(
             target=self._run,
@@ -111,10 +138,11 @@ class QuizTimer:
             stop_event.set()
 
         if self.audio:
-            try:
-                self.audio.stop_audio("timer")
-            except Exception as e:
-                self.logger.warning(f"Failed to stop audio: {e}")
+            for sound_type in ("timer", "background"):
+                try:
+                    self.audio.stop_audio(sound_type)
+                except Exception as e:
+                    self.logger.warning(f"Failed to stop {sound_type} audio: {e}")
 
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
@@ -154,6 +182,7 @@ class QuizTimer:
 
                     if self.audio:
                         try:
+                            self.audio.stop_audio("background")
                             self.audio.stop_audio("timer")
                         except Exception:
                             pass
