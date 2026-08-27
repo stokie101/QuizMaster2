@@ -6,7 +6,17 @@
 <link href="/styles.css" rel="stylesheet">
     <link href="/interactions.css" rel="stylesheet">
 </head><body class="page-surface dashboard-page">
-<header class="page-hero"><div><p class="eyebrow">Live quiz control room</p><h1>Dashboard</h1><p class="hero-copy">Run TikTok LIVE quizzes with OBS-ready overlays, chat answers, and a live leaderboard.</p></div><span class="pill success">Ready</span></header>
+<header class="page-hero">
+  <div class="hero-brand">
+    <img class="hero-logo" src="/core/assets/images/quizmaster-logo.png?v=20260827" alt="" aria-hidden="true">
+    <div>
+      <p class="eyebrow">Live quiz control room</p>
+      <h1>Dashboard</h1>
+      <p class="hero-copy">Run TikTok LIVE quizzes with OBS-ready overlays, chat answers, and a live leaderboard.</p>
+    </div>
+  </div>
+  <span class="pill success">Ready</span>
+</header>
 <section class="dashboard-grid">
   <article class="card status-card"><div class="card-head"><h2>TikTok LIVE</h2><span id="tiktokStatus" class="pill danger">Disconnected</span></div><p id="tiktokHelp">Open the TikTok tab and connect the username that is live.</p><a class="button secondary" href="/tiktok_tab.html">Open TikTok connector</a></article>
   <article class="card status-card"><div class="card-head"><h2>OBS</h2><span id="obsStatus" class="pill neutral">Manual / not connected</span></div><p>Use your official profile browser-source URLs or connect OBS WebSocket from Overlay Studio.</p><a class="button secondary" href="/overlay-studio">Open Overlay Studio</a></article>
@@ -15,7 +25,16 @@
 </section>
 <section class="two-column">
   <article class="card"><h2>Quick start</h2><ol class="checklist"><li>Connect the live TikTok username in the TikTok tab.</li><li>Go LIVE on TikTok, then press Connect.</li><li>Load a CSV quiz in Quiz Builder.</li><li>Add the official profile quiz, timer, and leaderboard URLs as OBS browser sources.</li><li>Start the quiz from Quiz Settings.</li></ol></article>
-  <article class="card"><h2>Official profile browser-source URLs</h2><div class="url-list"><code data-url="quiz">Loading official profile URL…</code><code data-url="leaderboard">Loading official profile URL…</code><code data-url="timer">Loading official profile URL…</code><code data-url="controls">Loading official profile URL…</code></div><p class="muted" id="urlHelp">URLs are generated from the signed-in QuizMaster profile ID.</p></article>
+  <article class="card">
+    <h2>Official profile browser-source URLs</h2>
+    <div class="url-list">
+      <div><span class="url-label">Quiz display</span><div class="url-row"><code data-url="quiz">Loading official profile URL…</code><button class="copy-btn" type="button" data-copy="quiz" disabled>Copy</button></div></div>
+      <div><span class="url-label">Leaderboard</span><div class="url-row"><code data-url="leaderboard">Loading official profile URL…</code><button class="copy-btn" type="button" data-copy="leaderboard" disabled>Copy</button></div></div>
+      <div><span class="url-label">Timer</span><div class="url-row"><code data-url="timer">Loading official profile URL…</code><button class="copy-btn" type="button" data-copy="timer" disabled>Copy</button></div></div>
+      <div><span class="url-label">Quiz controls dock</span><div class="url-row"><code data-url="controls">Loading official profile URL…</code><button class="copy-btn" type="button" data-copy="controls" disabled>Copy</button></div></div>
+    </div>
+    <p class="muted" id="urlHelp">URLs are generated from the signed-in QuizMaster profile ID.</p>
+  </article>
 </section>
 <script>
 function parentTikTok(){try{return window.parent?.QuizMasterTikTokMonitor?.getState?.()||null;}catch(e){return null;}}
@@ -41,8 +60,29 @@ subscribeTikTok();refresh();setInterval(refresh,5000);
       el.textContent = 'Sign in with a QuizMaster profile to generate this official URL';
     }
   });
-  if (help) help.textContent = generated ? 'These URLs are scoped to your signed-in QuizMaster profile ID.' : 'Official URLs are blocked until the signed-in QuizMaster account has a public widget/profile ID.';
+  if (help) help.textContent = generated ? 'These URLs are scoped to your signed-in QuizMaster profile ID. Add them in OBS as browser sources.' : 'Official URLs are blocked until the signed-in QuizMaster account has a public widget/profile ID.';
+
+  // A browser-source URL is far too long to read off the screen and retype,
+  // and the controls dock URL carries its owner token, so copying is the only
+  // sane way to move it into OBS.
+  document.querySelectorAll('.copy-btn').forEach((button) => {
+    const code = document.querySelector(`code[data-url="${button.dataset.copy}"]`);
+    const url = code?.textContent || '';
+    button.disabled = !url.startsWith('https://');
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent);
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = original; }, 1500);
+      } catch (error) {
+        button.textContent = 'Copy failed';
+        setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+      }
+    });
+  });
 })();
 </script>
+<footer class="page-footer"><img src="/core/assets/images/liveforge-logo.png?v=20260827" alt="LiveForge"><span>QuizMaster is part of LiveForge</span></footer>
   <script src="/qm_interactions.js"></script>
 </body></html>
