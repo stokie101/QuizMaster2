@@ -44,6 +44,12 @@ hiddenimports += collect_submodules('socketio')
 hiddenimports += collect_submodules('engineio')
 hiddenimports += collect_submodules('tiktoklive')
 hiddenimports += collect_submodules('keyring')
+# websockets exposes connect() from a submodule it imports lazily, so a frozen
+# build that collected only the top-level package raises ModuleNotFoundError the
+# first time the hosted bridge dials out. The reconnect loop treats that as one
+# more failed attempt, so the hosted control dock would work in development and
+# silently do nothing in a release build.
+hiddenimports += collect_submodules('websockets')
 # ServiceRegistry imports app services by dotted strings from service_configurations.py.
 # PyInstaller cannot reliably see those imports statically, so collect the app package.
 hiddenimports += collect_submodules('core')
