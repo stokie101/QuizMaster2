@@ -514,6 +514,31 @@ class HTTPBridgeServer:
         with self._snapshot_lock:
             return self.snapshot.copy()
 
+    # The quiz emits quiz_paused/quiz_resumed, never timer_paused/timer_resumed,
+    # and the hosted overlay listens to both pairs. Tracking only the timer_*
+    # names left the reported timer running straight through every pause.
+    TIMER_STATE_SIGNALS = frozenset({
+        'timer_started', 'timer_expired', 'timer_paused', 'timer_resumed',
+        'quiz_paused', 'quiz_resumed',
+    })
+
+    def _authoritative_remaining(self):
+        """Seconds left according to the timer actually running the question.
+
+        Deriving it from wall-clock arithmetic instead drifts by however long
+        each pause and resume took to be noticed, and that error compounds over
+        a question paused more than once.
+        """
+        try:
+            from core.services.service_locator import ServiceLocator
+
+            quiz_manager = ServiceLocator.get_instance().get_service("QuizManager")
+            timer = getattr(quiz_manager, "timer", None)
+            remaining = timer.get_remaining() if timer else None
+            return float(remaining) if remaining is not None else None
+        except Exception:
+            return None
+
     def _update_timer_state(self, signal_name, *args):
         try:
             if signal_name == 'timer_started':
@@ -527,14 +552,26 @@ class HTTPBridgeServer:
             elif signal_name == 'timer_expired':
                 self._timer_state['running'] = False
                 self._timer_state['remaining'] = 0
-            elif signal_name == 'timer_paused':
+            elif signal_name in ('timer_paused', 'quiz_paused'):
                 if self._timer_state['running']:
-                    elapsed = time.time() - self._timer_state['started_at']
-                    self._timer_state['remaining'] = max(0, self._timer_state['total'] - elapsed)
+                    authoritative = self._authoritative_remaining()
+                    if authoritative is None:
+                        elapsed = time.time() - self._timer_state['started_at']
+                        authoritative = max(0, self._timer_state['total'] - elapsed)
+                    self._timer_state['remaining'] = authoritative
                     self._timer_state['running'] = False
-            elif signal_name == 'timer_resumed':
+            elif signal_name in ('timer_resumed', 'quiz_resumed'):
                 if not self._timer_state['running']:
-                    self._timer_state['started_at'] = time.time()
+                    remaining = self._authoritative_remaining()
+                    if remaining is None:
+                        remaining = float(self._timer_state.get('remaining') or 0)
+                    total = float(self._timer_state.get('total') or 0)
+                    # Backdate the start by the time already spent, so
+                    # started_at + total is the true deadline again. Setting it
+                    # to now instead handed every consumer a fresh full
+                    # duration, and the answer landed while the clock still ran.
+                    self._timer_state['remaining'] = remaining
+                    self._timer_state['started_at'] = time.time() - max(0.0, total - remaining)
                     self._timer_state['running'] = True
 
             with self._snapshot_lock:
@@ -579,8 +616,7 @@ class HTTPBridgeServer:
                 logger.debug(f"Event store near capacity, dropping non-critical signal: {signal_name}")
                 return
 
-        timer_signals = {'timer_started', 'timer_expired', 'timer_paused', 'timer_resumed'}
-        if signal_name in timer_signals:
+        if signal_name in self.TIMER_STATE_SIGNALS:
             self._update_timer_state(signal_name, *args)
 
         evt = self._make_envelope(signal_name, args)
@@ -625,7 +661,10 @@ class HTTPBridgeServer:
     # The reading it is compared against is stamped by the bridge as the payload
     # is actually sent, not here, so time spent queued is not counted as time
     # still left to run.
-    TIMER_SIGNALS = frozenset({"timer_started", "timer_resumed", "timer_paused", "timer_expired"})
+    TIMER_SIGNALS = frozenset({
+        "timer_started", "timer_resumed", "timer_paused", "timer_expired",
+        "quiz_paused", "quiz_resumed",
+    })
 
     def _hosted_signal_args(self, signal_name: str, args: tuple) -> tuple:
         if signal_name not in self.TIMER_SIGNALS:
