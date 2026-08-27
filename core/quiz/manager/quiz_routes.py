@@ -425,6 +425,37 @@ def register_quiz_routes(app: FastAPI, server):
             logger.error(f"❌ Failed to stop quiz: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.post("/api/quiz/reset_quiz_runtime")
+    async def quiz_reset_runtime():
+        """Stop and unload: return the runtime to a clean IDLE state.
+
+        QuizManager.reset() refuses while the quiz is RUNNING or PAUSED, so an
+        unload has to stop first. Without this the hosted dock's Unload and
+        Reset both fell back to a plain stop, which leaves the quiz loaded --
+        the one recovery that is supposed to clear it did not.
+        """
+        try:
+            qm = QM()
+
+            if qm.state.state in {QuizState.RUNNING, QuizState.PAUSED}:
+                qm.stop_quiz()
+
+            if not qm.reset():
+                return JSONResponse(
+                    {"success": False, "error": "Quiz runtime cannot be reset right now"},
+                    status_code=400,
+                )
+
+            server.sync_snapshot_from_quiz(qm)
+            frontend_state = _sync_frontend_quiz_state(qm)
+
+            logger.info(f"✅ Quiz runtime reset in state: {frontend_state}")
+            return JSONResponse({"success": True, "state": frontend_state})
+
+        except Exception as e:
+            logger.error(f"❌ Failed to reset quiz runtime: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.post("/api/quiz/pause")
     async def quiz_pause():
         """Pause the quiz with proper state synchronization"""

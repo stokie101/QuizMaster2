@@ -52,7 +52,7 @@
     // their URL has to carry the account's control token in its fragment. Every
     // page builds control URLs through get_public_url, so the tokens are loaded
     // once here and applied there -- a control URL is never handed out bare.
-    const CONTROL_DOCK_WIDGETS = { '/quiz_controls': 'quiz', '/chess/controls': 'chess' };
+    const CONTROL_DOCK_WIDGETS = { '/quiz_controls': 'quiz' };
     let controlTokens = {};
 
     function loadControlTokens() {

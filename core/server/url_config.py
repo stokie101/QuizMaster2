@@ -128,7 +128,6 @@ def get_public_url(path: str, query: dict[str, object] | None = None, user_id: s
 # without its fragment loads a dock that can only report "not authorized".
 CONTROL_DOCK_PATHS = {
     "/quiz_controls": "quiz",
-    "/chess/controls": "chess",
 }
 
 
@@ -218,7 +217,7 @@ def _build_session_urls(widget_type: str, session_id: str | None = None) -> dict
             "session_id": session.session_id,
             "display_url": get_public_url("/chess/display", query, user_id=public_widget_id),
             "status_url": get_public_url("/chess/leaderboard", query, user_id=public_widget_id),
-            "controls_url": control_dock_url("/chess/controls", control_query, user_id=public_widget_id),
+            "controls_url": get_public_url("/chess/controls", control_query, user_id=public_widget_id),
         }
     raise ValueError("Unsupported widget type")
 
@@ -263,7 +262,7 @@ def as_dict() -> dict[str, object]:
             "quiz_controls": control_dock_url("/quiz_controls", mint=False),
             "quiz_leaderboard": get_public_url("/leaderboard"),
             "chess_display": get_public_url("/chess/display"),
-            "chess_controls": control_dock_url("/chess/controls", mint=False),
+            "chess_controls": get_public_url("/chess/controls"),
             "chess_leaderboard": get_public_url("/chess/leaderboard"),
             "genre_wheel_widget": get_public_url("/genre_wheel/widget"),
             "genre_wheel_control": get_public_url("/genre_wheel/control"),
