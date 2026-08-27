@@ -70,6 +70,11 @@ const SETTINGS_PAGES = {
     render: () => grid([
       card('⚡', 'QuizMaster', 'TikTok LIVE quiz control with OBS-ready overlays, chat answers, and live leaderboard workflows.', `<div class="info-list"><div class="info-row"><strong>App version</strong><span>Local build</span></div><div class="info-row"><strong>Build channel</strong><span>Desktop</span></div><div class="info-row"><strong>Copyright</strong><span>© 2026 QuizMaster</span></div></div>`, 'wide'),
       card('🌐', 'Links', 'Open official QuizMaster web destinations.', actionRow([button('QuizMaster on the web', () => openExternal(WEB_LINKS.product)), button('Your account', () => openExternal(WEB_LINKS.account), 'secondary'), button('Plans & pricing', () => openExternal(WEB_LINKS.pricing), 'secondary')]), 'wide'),
+      card('🛟', 'Support bundle', 'Collect what QuizMaster knows about this machine so a fault can be diagnosed instead of guessed at.', `
+        <p class="muted">Writes a zip of the app's recent logs and current state. Access tokens, dock tokens and email addresses are stripped before anything is written. Nothing is uploaded \u2014 the file stays on your machine until you send it.</p>
+        ${actionRow([button('Create support bundle', createSupportBundle)])}
+        <p class="muted" id="supportBundleResult" style="margin-top:.75rem"></p>
+      `, 'wide'),
       card('📝', 'Changelog', 'Release notes will appear here when update delivery is connected.', `<span class="status-badge future">Placeholder</span><p class="muted" style="margin-top:1rem">No changelog is bundled in this local settings view yet.</p>`),
       card('🙏', 'Credits', 'QuizMaster includes open-source libraries and platform integrations credited in bundled license files.', `<span class="status-badge online">Third-party credits available</span><p class="muted" style="margin-top:1rem">See the included third-party license documentation for detailed attribution.</p>`),
     ])
@@ -105,6 +110,22 @@ function button(label, handler, style = '', disabled = false, tooltip = '') {
 }
 function placeholder(label) { toast(`${label} is planned and not implemented yet.`); }
 function openExternal(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
+
+async function createSupportBundle() {
+  const result = document.getElementById('supportBundleResult');
+  if (result) result.textContent = 'Collecting…';
+  try {
+    const response = await fetch('/api/support/bundle', { method: 'POST' });
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    const kb = Math.max(1, Math.round(data.bytes / 1024));
+    if (result) result.textContent = `Saved ${data.name} (${kb} KB) to ${data.path}`;
+    toast('Support bundle created');
+  } catch (error) {
+    if (result) result.textContent = `Could not create the bundle: ${error.message}`;
+    toast('Support bundle failed');
+  }
+}
 function toast(message) {
   const el = document.getElementById('settingsToast');
   el.textContent = message;
