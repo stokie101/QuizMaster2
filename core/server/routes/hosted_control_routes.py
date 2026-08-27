@@ -82,3 +82,31 @@ def register_hosted_control_routes(app: FastAPI, server) -> None:
             "url": url,
             "error": None if status.get("has_token") else (status.get("error") or "control_token_unavailable"),
         })
+
+
+def register_diagnostics_routes(app: FastAPI, server) -> None:
+    """Endpoints behind the Settings "support bundle" button."""
+
+    @app.get("/api/support/report")
+    async def support_report():
+        """The runtime's current state, for showing in the app."""
+        from core.services.diagnostics import build_report
+
+        return JSONResponse({"success": True, "report": build_report()})
+
+    @app.post("/api/support/bundle")
+    async def support_bundle():
+        """Write a redacted zip of state + recent logs, and say where it is."""
+        from core.services.diagnostics import write_bundle
+
+        try:
+            path = write_bundle()
+        except Exception as exc:
+            logger.error("diagnostics_bundle_failed error=%s", exc, exc_info=True)
+            return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({
+            "success": True,
+            "path": str(path),
+            "name": path.name,
+            "bytes": path.stat().st_size,
+        })
