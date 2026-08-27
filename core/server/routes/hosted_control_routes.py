@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.server.url_config import CONTROL_DOCK_PATHS, control_dock_url
+from core.services.hosted_bridge import hosted_bridge_status
 from core.services.hosted_control import HostedControlTokens
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,16 @@ def register_hosted_control_routes(app: FastAPI, server) -> None:
             tokens[widget_type] = service.cached_token(widget_type, status.get("public_widget_id") or "")
             if not status.get("has_token"):
                 errors[widget_type] = status.get("error") or "control_token_unavailable"
-        return JSONResponse({"success": True, "docks": docks, "tokens": tokens, "errors": errors})
+        # A dock URL is only half of it: the app also has to be attached to the
+        # widget host's command channel, or every button on that dock does
+        # nothing. Report both together so the app can say which half is missing.
+        return JSONResponse({
+            "success": True,
+            "docks": docks,
+            "tokens": tokens,
+            "errors": errors,
+            "bridge": hosted_bridge_status(),
+        })
 
     @app.post("/api/hosted/control-docks/refresh")
     async def refresh_hosted_control_docks():

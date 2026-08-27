@@ -68,6 +68,20 @@ class HostedQuizBridge:
         self._handled_versions: set[str] = set()
         self._last_published: Optional[str] = None
         self._last_snapshot: Optional[str] = None
+        self._connected = False
+        self._last_error: Optional[str] = None
+
+    @property
+    def connected(self) -> bool:
+        """Is the command socket attached right now?"""
+        return self._connected
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "widget_type": self._widget_type,
+            "connected": self._connected,
+            "error": self._last_error,
+        }
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -133,6 +147,8 @@ class HostedQuizBridge:
         while not self._stopping.is_set():
             access_token, public_widget_id = self._credentials()
             if not access_token or not public_widget_id:
+                self._connected = False
+                self._last_error = "not_signed_in"
                 await asyncio.sleep(RECONNECT_MIN_SECONDS)
                 continue
             try:
@@ -141,31 +157,49 @@ class HostedQuizBridge:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.info(
+                self._connected = False
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                logger.warning(
                     "hosted_bridge_command_stream_retry widget=%s backoff=%.0fs error=%s",
                     self._widget_type, backoff, exc,
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, RECONNECT_MAX_SECONDS)
 
-    async def _consume_commands(self, access_token: str) -> None:
+    @staticmethod
+    def _connect(url: str, access_token: str):
+        """Open the command socket across both websockets client APIs.
+
+        The auth header keyword was renamed in websockets 14 (extra_headers ->
+        additional_headers). Passing the wrong one is a TypeError on every
+        attempt, which the reconnect loop swallows as just another failure: the
+        bridge never attaches, every hosted command queues into nothing, and the
+        dock's buttons do nothing at all. Try the current name, fall back to the
+        legacy one.
+        """
         import websockets
 
+        headers = {"Authorization": f"Bearer {access_token}"}
+        options = {"ping_interval": 20, "ping_timeout": 20, "max_queue": 32}
+        try:
+            return websockets.connect(url, additional_headers=headers, **options)
+        except TypeError:
+            return websockets.connect(url, extra_headers=headers, **options)
+
+    async def _consume_commands(self, access_token: str) -> None:
         base = self._hosted_base_url()
         ws_url = base.replace("https://", "wss://").replace("http://", "ws://")
         url = f"{ws_url}/api/{self._widget_type}/commands/stream"
 
-        async with websockets.connect(
-            url,
-            additional_headers={"Authorization": f"Bearer {access_token}"},
-            ping_interval=20,
-            ping_timeout=20,
-            max_queue=32,
-        ) as socket:
+        async with self._connect(url, access_token) as socket:
+            self._connected = True
             logger.info("hosted_bridge_command_stream_open widget=%s", self._widget_type)
-            while not self._stopping.is_set():
-                raw = await socket.recv()
-                await self._handle_message(raw)
+            try:
+                while not self._stopping.is_set():
+                    raw = await socket.recv()
+                    await self._handle_message(raw)
+            finally:
+                self._connected = False
 
     async def _handle_message(self, raw: Any) -> None:
         if not isinstance(raw, str):
@@ -331,6 +365,14 @@ class HostedQuizBridge:
 
 _bridge_lock = threading.Lock()
 _bridge: Optional[HostedQuizBridge] = None
+
+
+def hosted_bridge_status() -> Dict[str, Any]:
+    """Report whether the hosted control dock has this app behind it."""
+    with _bridge_lock:
+        if _bridge is None:
+            return {"widget_type": "quiz", "connected": False, "error": "bridge_not_started"}
+        return _bridge.status()
 
 
 def start_hosted_bridge(local_base_url: str) -> Optional[HostedQuizBridge]:
