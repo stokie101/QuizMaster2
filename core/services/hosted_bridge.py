@@ -45,10 +45,12 @@ COMMAND_ENDPOINTS: Dict[str, str] = {
     "load": "/api/quiz/load",
     "force_refresh_display": "/api/quiz/force_refresh_display",
     "save_config": "/api/config/save",
-    "reset_quiz_runtime": "/api/quiz/stop",
-    "reset": "/api/quiz/stop",
-    "unload": "/api/quiz/stop",
-    "clear_quiz": "/api/quiz/stop",
+    # Stop-and-unload, not a plain stop: these are the recovery commands, and a
+    # stop leaves the quiz loaded.
+    "reset_quiz_runtime": "/api/quiz/reset_quiz_runtime",
+    "reset": "/api/quiz/reset_quiz_runtime",
+    "unload": "/api/quiz/reset_quiz_runtime",
+    "clear_quiz": "/api/quiz/reset_quiz_runtime",
 }
 
 # The hosted display renders from live signals, not from polled state, so every

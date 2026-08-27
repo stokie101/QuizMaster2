@@ -1,6 +1,6 @@
 """Hosted control-dock tokens for the LiveForge widget host.
 
-The OBS control docks (quiz, chess) are served by the LiveForge widget Worker at
+The OBS quiz control dock is served by the LiveForge widget Worker at
 https://widgets.liveforge.online/u/<public_widget_id>/... . That page runs in
 OBS, which carries none of the desktop app's cookies or headers, so it proves
 ownership with a signed control token instead.
