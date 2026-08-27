@@ -17,6 +17,12 @@ LOGGER = logging.getLogger("AudioHandler")
 _VOLUME_KEYS = {"sound_effects": "effects_volume"}
 
 
+# Sounds whose track must FINISH as the countdown reaches zero, rather than
+# starting at zero and being cut off. The timer cue has always worked this way;
+# the background bed now does too.
+ALIGNED_TO_END_SOUNDS = frozenset({"timer", "background"})
+
+
 def _volume_key(sound_type: str) -> str:
     return _VOLUME_KEYS.get(sound_type, f"{sound_type}_volume")
 
@@ -123,6 +129,7 @@ class AudioHandler(QObject):
     # Internal signals for thread-safe playback requests
     _request_play_effect = Signal(str, str)  # (sound_type, filename)
     _request_play_timer = Signal(str, int)  # (filename, duration_seconds)
+    _request_play_aligned = Signal(str, str, int)  # (sound_type, filename, duration_seconds)
 
     audio_finished = Signal(str)
 
@@ -158,6 +165,9 @@ class AudioHandler(QObject):
         super().__init__(parent)
         self.audio_video_manager = AudioVideoManager.get_instance()
         self.timer_audio_position = 0  # store last timer position (ms)
+        # Where each end-aligned sound was held, so a resume picks it up rather
+        # than restarting and running past the end of the countdown.
+        self.aligned_audio_positions = {}
         self.config_manager = ConfigManager.get_instance()
         self.players = {}  # Store active QMediaPlayer instances
         self.audio_outputs = {}  # Store active QAudioOutput instances
@@ -181,6 +191,10 @@ class AudioHandler(QObject):
         self._request_play_effect.connect(
             self._play_effect_impl,
             Qt.ConnectionType.QueuedConnection
+        )
+        self._request_play_aligned.connect(
+            lambda sound_type, name, seconds: self._play_aligned_impl(sound_type, name, seconds),
+            Qt.ConnectionType.QueuedConnection if hasattr(Qt, "ConnectionType") else Qt.QueuedConnection,
         )
         self._request_play_timer.connect(
             self._play_timer_impl,
@@ -304,6 +318,79 @@ class AudioHandler(QObject):
         except Exception as e:
             logging.error(f"Error in play_timer_for_duration: {e}", exc_info=True)
 
+    def play_background_for_duration(self, file_name: str, duration_seconds: int):
+        """Play the last `duration_seconds` of the background bed.
+
+        SOUND.enable_background_sound and SOUND.background_volume have existed in
+        the config since the beginning and nothing ever played them: the only
+        sounds that reached a stream were the timer cue and the answer chime.
+        Like the timer cue, the bed is aligned so the track ENDS as the clock
+        reaches zero -- a 15 second question plays the file's last 15 seconds --
+        so the music resolves on the answer instead of being cut off mid-phrase.
+
+        Thread-safe; can be called from any thread.
+        """
+        try:
+            if not file_name:
+                return
+
+            try:
+                enabled = self.config_manager.getboolean("SOUND", "enable_background_sound", fallback=True)
+            except Exception:
+                enabled = True
+            try:
+                volume = self.config_manager.getint("SOUND", "background_volume", fallback=50)
+            except Exception:
+                volume = 50
+
+            logging.info(
+                "🎵 Background sound requested: file=%s duration=%ss enable_background_sound=%s background_volume=%s",
+                file_name, duration_seconds, enabled, volume,
+            )
+            if not enabled:
+                logging.info("Background sound is OFF (SOUND.enable_background_sound=false)")
+                return
+            if volume <= 0:
+                logging.warning("Background volume is 0 (SOUND.background_volume) -- raise it in Sound Settings")
+
+            duration_seconds = max(0, int(duration_seconds))
+
+            app = QCoreApplication.instance()
+            if app and self.thread() != app.thread():
+                self._request_play_aligned.emit("background", file_name, duration_seconds)
+                return
+
+            self._play_aligned_impl("background", file_name, duration_seconds)
+
+        except Exception as e:
+            logging.error(f"Error in play_background_for_duration: {e}", exc_info=True)
+
+    def _play_aligned_impl(self, sound_type: str, file_name: str, duration_seconds: int):
+        """Resolve and start any end-aligned sound. Runs on the main Qt thread."""
+        try:
+            file_path = resolve_sound_file(sound_type, file_name)
+            if not file_path:
+                logging.warning(
+                    "%s audio file not found: %s (no loose file and nothing in the embedded "
+                    "asset bundle for core/assets/sounds/%s/)", sound_type, file_name, sound_type,
+                )
+                return
+
+            if not self.is_supported_format(file_path):
+                logging.error(f"Unsupported audio format: {file_path}")
+                return
+
+            try:
+                volume = self.config_manager.getint("SOUND", _volume_key(sound_type), fallback=50)
+            except Exception:
+                volume = 50
+
+            self.stop_audio(sound_type)
+            self._play_audio_direct(sound_type, file_path, volume, duration_seconds)
+
+        except Exception as e:
+            logging.error(f"Error in _play_aligned_impl({sound_type}, {file_name}): {e}", exc_info=True)
+
     def _play_timer_impl(self, file_name: str, duration_seconds: int):
         """
         Runs on the main Qt thread. Validates inputs and starts timer playback
@@ -381,13 +468,13 @@ class AudioHandler(QObject):
                 lambda err, msg: logging.error(f"Playback error for {sound_type}: {err} - {msg}")
             )
 
-            if sound_type != "timer":
-                # Non-timer sounds play immediately (same path as the answer chime).
+            if sound_type not in ALIGNED_TO_END_SOUNDS:
+                # Everything else plays immediately (the answer chime's path).
                 player.play()
                 logging.debug(f"Playback started for {sound_type}")
                 return
 
-            # Timer: the track ending must land exactly at zero. Probe the audio
+            # Aligned sounds: the track ending must land exactly at zero. Probe the audio
             # length synchronously (reliable for the bundled .wav) so the decision
             # does not depend on Qt load signals -- waiting on those signals is why
             # the timer sound was previously silent.
@@ -400,7 +487,7 @@ class AudioHandler(QObject):
                 delay_ms = timer_ms - audio_ms
 
                 def _delayed_start(p=player):
-                    if self.players.get("timer") is p:
+                    if self.players.get(sound_type) is p:
                         p.setPosition(0)
                         p.play()
 
@@ -417,10 +504,10 @@ class AudioHandler(QObject):
             # Diagnostic: report the actual player state shortly after play() so a
             # silent-but-"playing" vs never-started case is visible in the log.
             def _log_timer_state(p=player):
-                if self.players.get("timer") is p:
+                if self.players.get(sound_type) is p:
                     logging.info(
-                        "⏱️ Timer player check: state=%s position=%sms duration=%sms seekable=%s mediaStatus=%s error=%s",
-                        p.playbackState(), p.position(), p.duration(), p.isSeekable(),
+                        "⏱️ %s player check: state=%s position=%sms duration=%sms seekable=%s mediaStatus=%s error=%s",
+                        sound_type, p.playbackState(), p.position(), p.duration(), p.isSeekable(),
                         p.mediaStatus(), p.errorString() or "none",
                     )
 
@@ -429,7 +516,7 @@ class AudioHandler(QObject):
             seeked = {"done": False}
 
             def _align_to_end():
-                if seeked["done"] or self.players.get("timer") is not player:
+                if seeked["done"] or self.players.get(sound_type) is not player:
                     return
                 total = audio_ms or player.duration()
                 if total <= 0:
@@ -574,20 +661,25 @@ class AudioHandler(QObject):
             return True
 
     def pause_audio(self, sound_type):
-        """Pauses the audio and stores its current position (for timer)."""
+        """Pauses the audio and stores its current position."""
         if sound_type in self.players:
             player = self.players[sound_type]
-            if sound_type == "timer":
-                self.timer_audio_position = player.position()
+            if sound_type in ALIGNED_TO_END_SOUNDS:
+                self.aligned_audio_positions[sound_type] = player.position()
+                if sound_type == "timer":
+                    self.timer_audio_position = player.position()
             player.pause()
             logging.debug(f"Paused {sound_type} audio")
 
     def resume_audio(self, sound_type="timer"):
-        """Resumes the audio from the stored position (for timer)."""
+        """Resumes the audio from the stored position."""
         if sound_type in self.players:
             player = self.players[sound_type]
-            if sound_type == "timer" and isinstance(self.timer_audio_position, int) and self.timer_audio_position > 0:
-                player.setPosition(self.timer_audio_position)
+            position = self.aligned_audio_positions.get(sound_type)
+            if sound_type == "timer" and not position and isinstance(self.timer_audio_position, int):
+                position = self.timer_audio_position
+            if isinstance(position, int) and position > 0:
+                player.setPosition(position)
             player.play()
             logging.debug(f"Resumed {sound_type} audio")
 
@@ -611,6 +703,7 @@ class AudioHandler(QObject):
             except Exception:
                 pass
 
+        self.aligned_audio_positions.pop(sound_type, None)
         if sound_type == "timer":
             self.timer_audio_position = 0
 
@@ -634,6 +727,7 @@ class AudioHandler(QObject):
                 pass
         self.players.clear()
         self.audio_outputs.clear()
+        self.aligned_audio_positions.clear()
         self.timer_audio_position = 0
         logging.info("All audio stopped")
 
