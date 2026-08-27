@@ -603,6 +603,17 @@ class HTTPBridgeServer:
 
         self._submit_emit_coro(_async_emit())
 
+        # Hosted overlays are not in any Socket.IO room -- they live on the
+        # widget host and render from signals delivered there. Mirror the same
+        # signal onto that channel, or a hosted display shows nothing while the
+        # quiz runs. Never blocks: the bridge queues and posts on its own thread.
+        try:
+            from core.services.hosted_bridge import publish_hosted_signal
+
+            publish_hosted_signal(signal_name, args)
+        except Exception as e:
+            logger.debug("hosted signal mirror skipped signal=%s error=%s", signal_name, e)
+
     def _active_widget_rooms(self) -> set:
         """Distinct non-default rooms that currently have a connected widget."""
         try:
