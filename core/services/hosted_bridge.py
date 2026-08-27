@@ -152,7 +152,7 @@ class HostedQuizBridge:
                 await asyncio.sleep(RECONNECT_MIN_SECONDS)
                 continue
             try:
-                await self._consume_commands(access_token)
+                await self._consume_commands(access_token, public_widget_id)
                 backoff = RECONNECT_MIN_SECONDS
             except asyncio.CancelledError:
                 raise
@@ -186,10 +186,18 @@ class HostedQuizBridge:
         except TypeError:
             return websockets.connect(url, extra_headers=headers, **options)
 
-    async def _consume_commands(self, access_token: str) -> None:
+    async def _consume_commands(self, access_token: str, public_widget_id: str) -> None:
         base = self._hosted_base_url()
         ws_url = base.replace("https://", "wss://").replace("http://", "ws://")
-        url = f"{ws_url}/api/{self._widget_type}/commands/stream"
+        # Name the channel explicitly. An account can hold a LiveForge and a
+        # QuizMaster widget id at once, and without this the host picks one by
+        # entitlement order -- attaching this app to one channel while its dock
+        # commands the other, which looks exactly like a dock with no app behind
+        # it.
+        url = (
+            f"{ws_url}/api/{self._widget_type}/commands/stream"
+            f"?public_widget_id={quote(public_widget_id, safe='')}"
+        )
 
         async with self._connect(url, access_token) as socket:
             self._connected = True
