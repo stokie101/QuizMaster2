@@ -280,6 +280,19 @@ class QuizManager(QObject):
     def resume_quiz(self): return self.resume()
     def stop_quiz(self): return self.stop()
 
+    def _question_payload(self, question_dict):
+        """A question payload that says which question it is.
+
+        The raw CSV row carries no position, and the number travels on its own
+        question_number_changed signal, so anything reading only the question --
+        the hosted display among them -- saw question_number 0 and rendered
+        "Quiz idle" while the quiz was plainly running.
+        """
+        payload = dict(question_dict or {})
+        payload.setdefault("question_number", self.questions.question_number)
+        payload.setdefault("total_questions", self.questions.total_questions)
+        return payload
+
     def _on_timer_tick(self, remaining):
         self.events.emit("timer_tick", remaining)
 
@@ -302,7 +315,7 @@ class QuizManager(QObject):
                 self._question_accept_until,
             )
 
-        self.events.emit("question_changed", question_dict)
+        self.events.emit("question_changed", self._question_payload(question_dict))
 
         with self._state_lock:
             if self.state.state != QuizState.RUNNING or not self._question_in_progress:
@@ -348,7 +361,7 @@ class QuizManager(QObject):
         with self._state_lock:
             if self.state.state != QuizState.RUNNING or self.questions.current_question is not question_dict:
                 return
-            payload = dict(question_dict)
+            payload = self._question_payload(question_dict)
         self.events.emit("question_changed", payload)
         if self.http_bridge and hasattr(self.http_bridge, "_update_snapshot"):
             try:

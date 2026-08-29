@@ -54,8 +54,22 @@ class AnswerProcessor:
             self.logger.warning(f"❌ No current question - cannot process answer from {user_id}")
             return False
 
-        if user_id in self.answered_users:
-            self.logger.info(f"Ignored duplicate answer user_id={user_id} answer={answer!r} question_id={self.current_question_id}")
+        # A player is finished with this question once they answer correctly, or
+        # once they have used their allowance of wrong answers.
+        if user_id in self.correct_users:
+            self.logger.info(
+                "Ignored answer after a correct one user_id=%s question_id=%s",
+                user_id, self.current_question_id,
+            )
+            return False
+
+        allowance = self._max_incorrect_attempts()
+        used = self.incorrect_counts.get(user_id, 0)
+        if used >= allowance:
+            self.logger.info(
+                "Ignored answer past the attempt allowance user_id=%s used=%s allowance=%s question_id=%s",
+                user_id, used, allowance, self.current_question_id,
+            )
             return False
 
         self.answered_users.add(user_id)
@@ -157,11 +171,44 @@ class AnswerProcessor:
             self.answer_total,
         )
 
+    def _max_incorrect_attempts(self) -> int:
+        """How many wrong answers a player may give before being locked out.
+
+        POINTS.max_incorrect_attempts has had a default, a getter and a settings
+        input since the beginning, and nothing read it: any second answer was
+        refused, so the allowance was always effectively 1 whatever the box said.
+        """
+        try:
+            if hasattr(self.config, "get_max_incorrect_attempts"):
+                return max(1, int(self.config.get_max_incorrect_attempts()))
+            return max(1, int(self.config.get_int("POINTS", "max_incorrect_attempts", 3)))
+        except Exception:
+            return 3
+
+    def _attempt_multiplier(self, wrong_attempts: int) -> float:
+        """Points keep their value on a first-time answer and decay after that.
+
+        Getting there on the third guess should not pay the same as knowing it,
+        or the allowance just rewards brute force: with an allowance of 3 a
+        correct answer is worth full, then a half, then a third.
+        """
+        return 1.0 / (max(0, int(wrong_attempts)) + 1)
+
     def _handle_correct(self, user_id, answer, display_name):
         self.correct_users.add(user_id)
+        wrong_attempts = self.incorrect_counts.get(user_id, 0)
         base_points = self._calculate_points(user_id)
+        if wrong_attempts:
+            scaled = int(round(base_points * self._attempt_multiplier(wrong_attempts)))
+            self.logger.info(
+                "Points scaled for wrong attempts user_id=%s attempts=%s base=%s scaled=%s",
+                user_id, wrong_attempts, base_points, scaled,
+            )
+            base_points = max(1, scaled) if base_points > 0 else scaled
         bonus = 0
-        qualifies_for_fastest_finger = self._is_fastest_finger(user_id)
+        # The fastest-finger bonus rewards the first correct answer, so a player
+        # who arrived there after wrong guesses is not eligible for it.
+        qualifies_for_fastest_finger = not wrong_attempts and self._is_fastest_finger(user_id)
         if qualifies_for_fastest_finger:
             bonus = self._award_fastest_finger(user_id)
         total_points = base_points + bonus
